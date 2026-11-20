@@ -11,6 +11,7 @@
 // Binding opzionale: KV namespace con nome "ADDR" per ricordare gli indirizzi per 30 giorni.
 
 const API = "https://carburanti.mise.gov.it/ospzApi/";
+const VERSION = "2026-11-20.2"; // pubblicato in automatico da GitHub (Cloudflare Workers Builds)
 
 // Siti autorizzati a usare il Worker dal browser. Aggiungi qui eventuali altri indirizzi.
 // Una lista vuota [] permette qualunque sito.
@@ -41,7 +42,7 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/" || url.pathname === "") {
-        return json({ success: true, service: "carburanti-proxy", kv: !!env.ADDR, time: new Date().toISOString() }, 200, cors);
+        return json({ success: true, service: "carburanti-proxy", version: VERSION, kv: !!env.ADDR, time: new Date().toISOString() }, 200, cors);
       }
       if (url.pathname === "/search") return await handleSearch(url, env, ctx, cors);
       const m = url.pathname.match(/^\/station\/(\d{1,9})\/?$/);
