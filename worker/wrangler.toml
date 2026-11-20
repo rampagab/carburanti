@@ -2,7 +2,7 @@
 # Nessun segreto: nome, file e data di compatibilità. Vedi worker/README.md, "Aggiornamento automatico".
 name = "carburanti"
 main = "worker.js"
-compatibility_date = "2025-11-01"
+compatibility_date = "2026-11-20"
 workers_dev = true
 
 [observability]
