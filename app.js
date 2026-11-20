@@ -518,29 +518,30 @@
         <span><strong>Media ${esc(nearHistoryZone())} ${label}</strong>${advice ? `<br><span class="muted">${advice}</span>` : ""}</span></div>`;
     }
     const center = currentCenter();
-    el.innerHTML = `<div class="card sum">
-      <div class="sum-top">
-        <div class="sum-main">
-          <div class="eyebrow">Il più economico · ${esc(FUELS[settings.fuel])} ${+settings.mode === 1 ? "self" : "servito"}</div>
-          <button class="sum-best" data-open="${esc(best.s.id)}">
-            <span class="big">${price(min)}</span><span class="u">${u}</span>
-          </button>
-          <div class="sum-where">${logoHTML(best.s.brand)}${esc(prettyBrand(best.s.brand))}${best.s.distance != null ? " · " + km(best.s.distance) : ""}</div>
-        </div>
-        <dl class="sum-stats">
-          <div><dt>Media zona</dt><dd>${price(mean)}</dd></div>
-          ${car ? `<div><dt>Pieno ${nf1.format(qty).replace(",0", "")} ${qu}</dt><dd>${nf2.format(min * qty)} €</dd></div>` : ""}
-          <div><dt>Risparmio ${nf1.format(qty).replace(",0", "")} ${qu}</dt><dd>${nf2.format(saving)} €</dd></div>
-          ${car ? "" : `<div><dt>Impianti</dt><dd>${rows.length}</dd></div>`}
-        </dl>
+    const qn = nf1.format(qty).replace(",0", "");
+    el.innerHTML = `<div class="card sum hero">
+      <div class="sum-head"><span class="pill-dark">Il più economico</span><span class="sum-fuel">${esc(FUELS[settings.fuel])} ${+settings.mode === 1 ? "self" : "servito"}</span></div>
+      <button class="sum-best" data-open="${esc(best.s.id)}" aria-label="Dettagli ${esc(prettyBrand(best.s.brand))}">
+        <span class="big">${price(min)}</span><span class="u">${u}</span>
+      </button>
+      <div class="sum-row">
+        <span class="sum-where">${logoHTML(best.s.brand)}<span>${esc(prettyBrand(best.s.brand))}${best.s.distance != null ? " · " + km(best.s.distance) : ""}</span></span>
+        <a class="round-go" href="${mapsUrl(best.s)}" target="_blank" rel="noopener" aria-label="Portami lì">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>
       </div>
-      ${car ? `<div class="car-line"><strong>${esc(car.name)}</strong>: ${nf2.format(car.cons * min)} €/100 km · «netti» = rispetto al più vicino, tolta la strada</div>` : ""}
+      <dl class="minis">
+        <div><dt>Media zona</dt><dd>${price(mean)}</dd></div>
+        ${car ? `<div><dt>Pieno ${qn} ${qu}</dt><dd>${nf2.format(min * qty)} €</dd></div>` : ""}
+        <div><dt>Risparmio ${qn} ${qu}</dt><dd>${nf2.format(saving)} €</dd></div>
+      </dl>
+      ${car ? `<div class="car-line"><strong>${esc(car.name)}</strong> · ${nf2.format(car.cons * min)} €/100 km · «netti» = rispetto al più vicino, tolta la strada</div>` : ""}
       ${trend}
-      <div class="sum-foot muted">${esc(center ? center.name : "")} · raggio ${settings.radius} km${car ? " · " + rows.length + " impianti" : ""}${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
+      <div class="sum-foot">${esc(center ? center.name : "")} · ${settings.radius} km · ${rows.length} impianti${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
     </div>`;
   }
 
-  function cardHTML({ s, f }, min, ref, car) {
+  const RANK_COLORS = ["var(--c-yellow)", "var(--c-orange)", "var(--c-pink)", "var(--c-blue)", "var(--c-lilac)"];
+  function cardHTML({ s, f }, min, ref, car, idx = 0) {
     const a = ago(s.insertDate);
     let net = "";
     if (car && ref) {
@@ -558,25 +559,21 @@
     const title = prettyBrand(s.brand);
     const sub = prettyAddress(s.address) || (isUsefulName(s.name) ? s.name : "Indirizzo non disponibile");
     const otherName = s.address && isUsefulName(s.name) && !/^[A-Z0-9 ,.'-]+$/.test(s.name) ? s.name : "";
-    return `<article class="card st${diff === 0 ? " best" : ""}" data-open="${esc(s.id)}" tabindex="0" aria-label="${esc(title + ", " + price(f.price) + " " + unit(settings.fuel))}">
-      <div class="st-price">
-        <span class="big">${price(f.price)}</span>
-        <span class="delta ${diff === 0 ? "zero" : ""}">${diff === 0 ? "Migliore" : "+" + cents(diff) + " cent"}</span>
-      </div>
+    const rank = idx + 1;
+    return `<article class="card st${diff === 0 ? " best" : ""}" data-open="${esc(s.id)}" tabindex="0" aria-label="${esc(rank + ". " + title + ", " + price(f.price) + " " + unit(settings.fuel))}">
+      <div class="rank" style="--rk:${diff === 0 ? "var(--accent)" : RANK_COLORS[idx % RANK_COLORS.length]}" aria-hidden="true">${rank}</div>
       <div class="st-info">
         <h3>${logoHTML(s.brand)}<span class="tt">${esc(title)}${otherName ? ` <span class="muted">· ${esc(otherName)}</span>` : ""}</span></h3>
         <p class="addr">${esc(sub)}</p>
-        <p class="meta">${s.distance != null ? `<span>${km(s.distance)}</span>` : ""}
-          <span class="${stale ? "stale" : ""}">${stale ? "⚠ " : ""}aggiornato ${esc(a.text)}</span>
+        <p class="meta">${s.distance != null ? `<span>${km(s.distance)}</span>` : ""}<span class="${diff === 0 ? "zero" : ""}">${diff === 0 ? "il migliore" : "+" + cents(diff) + " cent"}</span>
+          <span class="${stale ? "stale" : ""}">${stale ? "⚠ " : ""}${esc(a.text)}</span>
           ${f.name && f.name !== FUELS[settings.fuel] ? `<span class="prod">${esc(f.name)}</span>` : ""}${net}</p>
       </div>
-      <div class="st-actions">
+      <div class="st-right">
+        <span class="price">${price(f.price)}</span>
         <button class="star" data-fav="${esc(s.id)}" aria-pressed="${fav}" aria-label="${fav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
         </button>
-        <a class="go" href="${mapsUrl(s)}" target="_blank" rel="noopener" data-golink aria-label="Portami lì">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l18-8-8 18-2-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Vai</span>
-        </a>
       </div>
     </article>`;
   }
@@ -616,7 +613,7 @@
     }
     const min = Math.min(...all.map((x) => x.f.price));
     const car = carForFuel(), ref = car ? nearestRef(all) : null;
-    let html = rows.map((r) => cardHTML(r, min, ref, car)).join("");
+    let html = rows.map((r, i) => cardHTML(r, min, ref, car, i)).join("");
     if (state.error && !state.fromCache) html = `<div class="card state err small"><p>${esc(state.error)}</p><button class="btn" data-retry>Riprova</button></div>` + html;
     el.innerHTML = html;
   }
@@ -677,7 +674,7 @@
     return `<table class="hours">${rows}</table><p class="muted small">Orari indicativi, comunicati dal gestore.</p>`;
   }
 
-  function pricesHTML(fuels) {
+  function pricesHTML(fuels, chosen) {
     // Raggruppa per prodotto: colonne Self / Servito.
     const groups = new Map();
     for (const f of fuels) {
@@ -693,7 +690,8 @@
     const list = [...groups.entries()].sort((a, b) => (order.indexOf(a[1].fuelId) + 1 || 9) - (order.indexOf(b[1].fuelId) + 1 || 9) || a[0].localeCompare(b[0]));
     if (!list.length) return `<p class="muted">Nessun prezzo disponibile.</p>`;
     return `<table class="prices"><thead><tr><th></th><th>Self</th><th>Servito</th></tr></thead><tbody>${list.map(([name, g]) => {
-      const sel = g.fuelId === +settings.fuel;
+      // Evidenzio solo il prodotto mostrato in lista (es. Gasolio, non Blue Diesel).
+      const sel = g.fuelId === +settings.fuel && (!chosen || name === chosen);
       const a = g.date ? ago(g.date) : null;
       return `<tr${sel ? ' class="sel"' : ""}><th>${esc(name)}${a ? `<span class="muted small${a.hours > 72 ? " stale" : ""}">${esc(a.text)}</span>` : ""}</th>
         <td${sel && +settings.mode === 1 ? ' class="hl"' : ""}>${price(g.self)}</td><td${sel && +settings.mode === 0 ? ' class="hl"' : ""}>${price(g.served)}</td></tr>`;
@@ -809,7 +807,7 @@
         </div>
       </div>
 
-      <section><h3>Prezzi</h3>${pricesHTML(fuels)}</section>
+      <section><h3>Prezzi</h3>${pricesHTML(fuels, f && f.name)}</section>
       <section><h3>Andamento</h3>${hist === undefined ? '<div class="sk chart-sk"></div>' : chartHTML(hist, state.average, key)}</section>
       ${loadingDetail ? '<section><div class="sk"></div><div class="sk short"></div></section>' : ""}
       ${detail === null ? '<p class="muted">Dettagli dell\'impianto non disponibili al momento.</p>' : ""}
@@ -843,19 +841,49 @@
   // ---------- Pagine ----------
   function showView(name, html) { const el = $("#view-" + name); if (el) el.innerHTML = html; }
 
+  // Miglior prezzo attuale per un carburante: dalla lista Prezzi se è lo stesso, altrimenti dallo storico.
+  function bestPriceFor(fuel) {
+    if (+settings.fuel === +fuel) {
+      const rows = priced();
+      if (rows.length) return Math.min(...rows.map((x) => x.f.price));
+    }
+    const days = state.average && state.average.days;
+    const last = days && days[days.length - 1];
+    const v = last && last.v && (last.v[fuel + "-1"] || last.v[fuel + "-0"]);
+    return v ? v.min : null;
+  }
+
+  const CAR_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14M6 17v2M18 17v2M4 13l2-6h12l2 6v4H4z"/></svg>';
   function renderAuto() {
     const u = (c) => (+c.fuel === 3 ? "kg" : "L");
-    const carRow = (c) => `<li>
-        <button class="pl-name car-pick" data-car-use="${esc(c.id)}" aria-pressed="${c.id === activeCarId}">
-          <span class="radio" aria-hidden="true"></span><span><strong>${esc(c.name)}</strong>
-          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(100 / c.cons)} km/${u(c)}${c.realKml || !c.declL100 ? "" : " (stima)"} · ${nf1.format(c.tank).replace(",0", "")} ${u(c)}</span></span></button>
-        <span class="pl-btns"><button class="icon-btn" data-car-edit="${esc(c.id)}" aria-label="Modifica ${esc(c.name)}">✎</button>
-        <button class="icon-btn" data-car-del="${esc(c.id)}" aria-label="Elimina ${esc(c.name)}">✕</button></span></li>`;
+    const act = activeCar();
+    const others = cars.filter((c) => c !== act);
+    const subOf = (c) => (c.cfg && c.cfg.engine ? c.cfg.engine : FUELS[c.fuel]);
+    let hero = "";
+    if (act) {
+      const bp = bestPriceFor(act.fuel);
+      hero = `<div class="card hero blue car-hero">
+        <div class="sum-head"><span class="pill-dark">Predefinita</span>
+          <button class="icon-btn boxed" data-car-edit="${esc(act.id)}" aria-label="Modifica ${esc(act.name)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg></button></div>
+        <div class="car-name"><strong>${esc(act.name)}</strong><span>${esc(subOf(act))}${act.realKml || !act.declL100 ? "" : " · consumo stimato"}</span></div>
+        <dl class="minis two">
+          <div><dt>Consumo</dt><dd>${nf1.format(100 / act.cons)} km/${u(act)}</dd></div>
+          <div><dt>Serbatoio</dt><dd>${nf1.format(act.tank).replace(",0", "")} ${u(act)}</dd></div>
+        </dl>
+        ${bp ? `<div class="mini-row"><span>Pieno oggi, al prezzo migliore</span><strong>${nf2.format(bp * act.tank)}€</strong></div>` : ""}
+      </div>`;
+    }
+    const rowsHTML = others.map((c, i) => `<div class="card car-row">
+        <span class="sq" style="--rk:${RANK_COLORS[i % RANK_COLORS.length]}" aria-hidden="true">${CAR_ICON}</span>
+        <button class="car-txt-btn" data-car-edit="${esc(c.id)}" aria-label="Modifica ${esc(c.name)}"><strong>${esc(c.name)}</strong><span>${esc(FUELS[c.fuel])} · ${nf1.format(100 / c.cons)} km/${u(c)}</span></button>
+        <button class="btn sm" data-car-use="${esc(c.id)}">Usa</button>
+      </div>`).join("");
     showView("auto", `
-      ${cars.length ? `<ul class="places cars">${cars.map(carRow).join("")}
-        <li><button class="pl-name car-pick" data-car-use="" aria-pressed="${!activeCar()}"><span class="radio" aria-hidden="true"></span><span>Nessuna auto</span></button></li></ul>`
-        : `<div class="card state"><h2>Nessuna auto</h2><p>Aggiungila per vedere costo del pieno e risparmio netto.</p></div>`}
-      <button class="btn primary wide" data-car-new>+ Aggiungi auto</button>`);
+      <div class="view-actions"><button class="btn primary" data-car-new><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Aggiungi</button></div>
+      ${cars.length ? "" : `<div class="card state"><h2>Ancora nessuna auto</h2><p>Aggiungila per vedere costo del pieno e risparmio netto.</p></div>`}
+      ${hero}
+      ${rowsHTML}
+      ${act ? `<button class="linkish center" data-car-use="">Non usare un'auto predefinita</button>` : ""}`);
   }
 
   function renderAltro() {
@@ -947,6 +975,7 @@
         <label class="field"><span>Capienza serbatoio (${u})</span><input name="tank" type="number" inputmode="decimal" step="1" min="5" max="150" required value="${c.tank || ""}"></label>
         <p class="form-err" role="alert" hidden></p>
         <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-car-cancel="${target}">Annulla</button></div>
+        ${car ? `<button class="btn danger wide" type="button" data-car-del="${esc(car.id)}">Elimina auto</button>` : ""}
       </form>`);
     initConfigurator($("#car-form"), c);
   }
@@ -1203,79 +1232,93 @@
       ? `https://maps.apple.com/?saddr=${from.lat},${from.lng}&daddr=${to.lat},${to.lng}&dirflg=d`
       : `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=driving`;
     const g = trip.groupId && groups.find((x) => x.id === trip.groupId);
-    return `<div class="card trip-res">
-      <div class="eyebrow">${tripPrefs.roundTrip ? "Andata e ritorno" : "Solo andata"} · ${esc(to.name)}</div>
-      <div class="trip-total"><span class="big">${nf2.format(total)}</span><span class="u">€</span></div>
-      ${people > 1 ? `<div class="muted"><strong>${nf2.format(total / people)} € a testa</strong> · ${people} persone</div>` : ""}
-      <dl class="trip-dl">
-        <div><dt>Distanza</dt><dd>${nf1.format(kmTot)} km</dd></div>
-        <div><dt>Tempo di guida</dt><dd>${h ? h + " h " : ""}${m} min</dd></div>
-        <div><dt>Carburante</dt><dd>${nf1.format(liters)} ${u} · ${nf2.format(fuelCost)} €</dd></div>
-        <div><dt>Pedaggi ${real >= 0 ? "(reali)" : "(stima)"}</dt><dd>${nf2.format(toll)} €</dd></div>
+    const each = people > 1;
+    return `<div class="card trip-res hero">
+      <div class="sum-head"><span class="pill-dark">${tripPrefs.roundTrip ? "Andata e ritorno" : "Solo andata"}</span><span class="sum-fuel">${esc(to.name)}</span></div>
+      <span class="res-label">${each ? `A testa · ${people} persone` : "Totale"}</span>
+      <span class="big">${nf2.format(each ? total / people : total)}€</span>
+      ${each ? `<span class="res-sub">Totale ${nf2.format(total)} €</span>` : ""}
+      <dl class="res-grid">
+        <div><dt>Distanza</dt><dd>${nf1.format(kmTot).replace(/,\d$/, "")} km</dd></div>
+        <div><dt>Carburante</dt><dd>${nf2.format(fuelCost)}€</dd></div>
+        <div><dt>Pedaggi${real >= 0 ? "" : "*"}</dt><dd>${nf2.format(toll)}€</dd></div>
       </dl>
-      ${legs.length ? `<ul class="tolls">${legs.map((l) => `<li><span>${esc(l.ref)}</span><span>${nf1.format(l.km)} km</span><span>${nf2.format(l.eur)} €</span></li>`).join("")}</ul>` : `<p class="muted small">Nessuna autostrada a pagamento.</p>`}
+      <p class="res-note">${h ? h + " h " : ""}${m} min di guida · ${nf1.format(liters)} ${u} di ${esc(FUELS[tripFuel()]).toLowerCase()}</p>
+    </div>
+    <div class="card pad trip-more">
+      ${legs.length ? `<ul class="tolls">${legs.map((l) => `<li><span>${esc(l.ref)}</span><span>${nf1.format(l.km)} km</span><span>${nf2.format(l.eur)} €</span></li>`).join("")}</ul>
+        <p class="muted small">* Stima con le tariffe ufficiali di ogni autostrada: il casello può differire.</p>` : `<p class="muted small">Nessuna autostrada a pagamento.</p>`}
       <label class="field"><span>Pedaggi reali${tripPrefs.roundTrip ? " (A/R)" : ""}</span>
         <input id="toll-real" type="number" inputmode="decimal" step="0.1" min="0" value="${esc(trip.tollReal)}" placeholder="${nf2.format(tollEst).replace(",", ".")}"></label>
       <div class="preset-row">
         ${g ? `<button type="button" class="btn primary" data-sp-goto="${esc(g.id)}">Apri in Spese</button>`
             : `<button type="button" class="btn primary" data-trip-group>${people > 1 ? "Crea viaggio e dividi" : "Salva in Spese"}</button>`}
         <a class="btn" href="${maps}" target="_blank" rel="noopener">Apri in Mappe</a></div>
-      <p class="muted small">Pedaggi stimati con le tariffe ufficiali di ogni autostrada. Il casello può differire.</p>
     </div>`;
   }
 
-  // Campo luogo con suggerimenti mentre si scrive.
-  function placeFieldHTML(which) {
+  // Partenza e arrivo in un'unica card, con suggerimenti mentre si scrive.
+  function placeRowHTML(which) {
     const val = trip[which];
-    const label = which === "from" ? "Partenza" : "Arrivo";
-    if (val) {
-      return `<div class="field"><span>${label}</span><div class="picked"><span>${val.gps ? "📍 La mia posizione" : `<strong>${esc(val.name)}</strong>`}</span>
-        <button type="button" class="icon-btn" data-pf-clear="${which}" aria-label="Cambia ${label.toLowerCase()}">✕</button></div></div>`;
-    }
-    const quick = (which === "from" ? [`<button type="button" class="chip-q" data-pf-gps>📍 La mia posizione</button>`] : [])
-      .concat(places.map((p) => `<button type="button" class="chip-q" data-pf-place="${which}:${esc(p.id)}">${esc(p.name)}</button>`));
-    return `<div class="field pf"><span>${label}</span>
-      <input class="pf-input" data-pf-input="${which}" type="search" placeholder="Scrivi un indirizzo o un comune" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="${label}">
-      <ul class="results pf-list" id="pf-list-${which}"></ul>
+    const label = which === "from" ? "Da" : "A";
+    const full = which === "from" ? "Partenza" : "Arrivo";
+    const body = val
+      ? `<span class="rv">${val.gps ? "La mia posizione" : esc(val.name)}</span><button type="button" class="icon-btn" data-pf-clear="${which}" aria-label="Cambia ${full.toLowerCase()}">✕</button>`
+      : `<input class="pf-input" data-pf-input="${which}" type="search" placeholder="${which === "from" ? "Da dove parti?" : "Dove vai?"}" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="${full}">`;
+    return `<div class="route-row"><span class="dot ${which}" aria-hidden="true"></span><span class="rl">${label}</span>${body}</div>`;
+  }
+  function routeHTML() {
+    const empty = !trip.from ? "from" : !trip.to ? "to" : null;
+    const quick = empty ? (empty === "from" ? [`<button type="button" class="chip-q" data-pf-gps>La mia posizione</button>`] : [])
+      .concat(places.map((p) => `<button type="button" class="chip-q" data-pf-place="${empty}:${esc(p.id)}">${esc(p.name)}</button>`)) : [];
+    return `<div class="field"><span class="sr-only">Percorso</span>
+      <div class="route">${placeRowHTML("from")}${placeRowHTML("to")}</div>
+      <ul class="results pf-list" id="pf-list-from"></ul><ul class="results pf-list" id="pf-list-to"></ul>
       ${quick.length ? `<div class="quick">${quick.join("")}</div>` : ""}</div>`;
   }
 
+  const PERSON_COLORS = ["var(--c-yellow)", "var(--c-orange)", "var(--c-lilac)", "var(--c-blue)", "var(--c-pink)", "var(--accent)"];
   function peopleHTML() {
     const ps = tripPrefs.people;
     const known = [...new Set(groups.flatMap((g) => g.people.map((p) => p.name)))].filter((n) => !ps.includes(n) && !/^Persona \d+$/.test(n)).slice(0, 8);
-    return `<div class="field"><span>Chi viaggia</span>
-      <div class="people">${ps.map((n, i) => `<span class="person"><button type="button" class="pname" data-pp-rename="${i}">${esc(n)}</button>${ps.length > 1 ? `<button type="button" class="px" data-pp-del="${i}" aria-label="Togli ${esc(n)}">✕</button>` : ""}</span>`).join("")}</div>
+    return `<div class="people">${ps.map((n, i) => `<span class="person" style="--pc:${PERSON_COLORS[i % PERSON_COLORS.length]}"><button type="button" class="pname" data-pp-rename="${i}" aria-label="Rinomina ${esc(n)}">${esc(n)}</button>${ps.length > 1 ? `<button type="button" class="px" data-pp-del="${i}" aria-label="Togli ${esc(n)}">✕</button>` : ""}</span>`).join("")}
+        <label class="chip-toggle"><input type="checkbox" name="round"${tripPrefs.roundTrip ? " checked" : ""}> A/R</label></div>
       <div class="inline pp-add">
-        <div class="stepper" role="group" aria-label="Numero di persone"><button type="button" data-pp-step="-1" aria-label="Una persona in meno">−</button><output>${ps.length}</output><button type="button" data-pp-step="1" aria-label="Una persona in più">+</button></div>
-        <input name="pname" placeholder="Aggiungi nome" autocomplete="off" enterkeyhint="done" aria-label="Aggiungi nome">
+        <input name="pname" placeholder="Aggiungi un nome" autocomplete="off" enterkeyhint="done" aria-label="Aggiungi un nome">
         <button type="button" class="btn" data-pp-add>Aggiungi</button>
       </div>
-      ${known.length || CAN_CONTACTS ? `<div class="quick">${CAN_CONTACTS ? `<button type="button" class="chip-q" data-pp-contacts>👤 Dalla rubrica</button>` : ""}${known.map((n) => `<button type="button" class="chip-q" data-pp-known="${esc(n)}">+ ${esc(n)}</button>`).join("")}</div>` : ""}
-    </div>`;
+      ${known.length || CAN_CONTACTS ? `<div class="quick">${CAN_CONTACTS ? `<button type="button" class="chip-q" data-pp-contacts>Dalla rubrica</button>` : ""}${known.map((n) => `<button type="button" class="chip-q" data-pp-known="${esc(n)}">+ ${esc(n)}</button>`).join("")}</div>` : ""}`;
   }
 
   function tripHTML() {
     const car = tripCar();
     const fuel = tripFuel();
     const u = fuel === 3 ? "kg" : "L";
+    const ps = tripPrefs.people;
     return `<form id="trip-form" class="form" autocomplete="off">
-        ${placeFieldHTML("from")}
-        ${placeFieldHTML("to")}
-        <label class="check"><input type="checkbox" name="round"${tripPrefs.roundTrip ? " checked" : ""}> Andata e ritorno</label>
+        ${routeHTML()}
+        <div class="trip-row">
+          <label class="car-box"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 17h14M4 13l2-6h12l2 6v4H4z"/></svg></span>
+            <span class="car-txt"><span class="sr-only">Auto</span><select name="car" data-trip-car aria-label="Auto">
+              ${cars.map((c) => `<option value="${esc(c.id)}"${car && car.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
+              <option value=""${car ? "" : " selected"}>Nessuna auto</option>
+              <option value="__new">+ Nuova auto…</option></select>
+            <span class="car-sub">${car ? `${nf1.format(100 / car.cons)} km/${u} · ${esc(FUELS[car.fuel])}` : "Consumo a mano"}</span></span></label>
+          <div class="stepper" role="group" aria-label="Persone">
+            <button type="button" data-pp-step="-1" aria-label="Una persona in meno">−</button>
+            <span class="sv"><output>${ps.length}</output><small>${ps.length === 1 ? "persona" : "persone"}</small></span>
+            <button type="button" data-pp-step="1" aria-label="Una persona in più">+</button></div>
+        </div>
         ${peopleHTML()}
-        <label class="field"><span>Auto</span><select name="car" data-trip-car>
-          ${cars.map((c) => `<option value="${esc(c.id)}"${car && car.id === c.id ? " selected" : ""}>${esc(c.name)} · ${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"}</option>`).join("")}
-          <option value=""${car ? "" : " selected"}>Nessuna auto</option>
-          <option value="__new">+ Nuova auto…</option></select></label>
-        ${car ? "" : `<div class="field"><span>Consumo</span><div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="30" value="${tripPrefs.cons}" aria-label="Consumo"><span class="unit">${u}/100 km</span></div>
-          <select name="tfuel" data-trip-fuel aria-label="Carburante">${[2, 1, 4, 3].map((f) => `<option value="${f}"${fuel === f ? " selected" : ""}>${FUELS[f]}</option>`).join("")}</select></div>`}
-        <label class="field"><span>Prezzo ${esc(FUELS[fuel])} (€/${u})</span>
+        ${car ? "" : `<div class="field"><span>Consumo e carburante</span><div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="30" value="${tripPrefs.cons}" aria-label="Consumo"><span class="unit">${u}/100 km</span>
+          <select name="tfuel" data-trip-fuel aria-label="Carburante">${[2, 1, 4, 3].map((f) => `<option value="${f}"${fuel === f ? " selected" : ""}>${FUELS[f]}</option>`).join("")}</select></div></div>`}
+        <label class="field"><span>Prezzo ${esc(FUELS[fuel]).toLowerCase()} (€/${u})</span>
           <input name="price" type="number" inputmode="decimal" step="0.001" min="0.3" max="5" value="${esc(trip.price)}" placeholder="${FALLBACK_PRICE[fuel].toFixed(3)}" data-trip-price>
           <small class="muted">${priceHint()}</small></label>
         <p class="form-err" role="alert" hidden></p>
-        <button class="btn primary" type="submit">Calcola</button>
+        <button class="btn primary big-btn" type="submit">Calcola</button>
       </form>
-      <div id="trip-out" aria-live="polite">${tripResultHTML()}</div>`;
+      <div id="trip-out" class="trip-out" aria-live="polite">${tripResultHTML()}</div>`;
   }
 
   function openTrip(keepScroll) {
