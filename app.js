@@ -1737,6 +1737,8 @@
 
   // ---------- Schede (menu in basso) ----------
   const TABS = { prezzi: "Prezzi", viaggio: "Viaggio", spese: "Spese", auto: "Garage", altro: "Altro" };
+  // Titoli grandi nell'intestazione, su due righe (stile "Pieno furbo").
+  const HEADINGS = { prezzi: "Pieno<br>furbo.", viaggio: "Quanto costa<br>il viaggio?", spese: "Spese<br>di viaggio.", auto: "Il tuo<br>garage.", altro: "Tutto<br>il resto." };
   let currentTab = "prezzi";
   function go(name) {
     if (location.hash === "#" + name) route();
@@ -1754,7 +1756,8 @@
     document.body.dataset.tab = name;
     for (const k in TABS) $("#view-" + k).hidden = k !== name;
     $$(".tabbar a").forEach((a) => (a.dataset.tab === name ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
-    $("#title").textContent = TABS[name];
+    $("#title").innerHTML = HEADINGS[name];
+    document.title = name === "prezzi" ? "Pieno furbo" : `${TABS[name]} · Pieno furbo`;
     if (name === "viaggio") openTrip();
     else if (name === "spese") renderSpese();
     else if (name === "auto") renderAuto();

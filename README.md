@@ -1,4 +1,4 @@
-# Carburanti
+# Pieno furbo
 
 Web app personale per i prezzi dei carburanti, pensata per iPhone.
 Su Safari: **Condividi › Aggiungi alla schermata Home**.

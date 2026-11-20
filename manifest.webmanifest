@@ -1,17 +1,37 @@
 {
-  "name": "Carburanti",
-  "short_name": "Carburanti",
-  "description": "Prezzi dei carburanti vicino a te (dati MIMIT).",
+  "name": "Pieno furbo",
+  "short_name": "Pieno furbo",
+  "description": "Prezzi dei carburanti, costi di viaggio e spese da dividere.",
   "lang": "it",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f3f5f4",
-  "theme_color": "#0f766e",
+  "background_color": "#FFF4E2",
+  "theme_color": "#FFF4E2",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
   ]
 }

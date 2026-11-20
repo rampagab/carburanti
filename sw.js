@@ -1,7 +1,11 @@
 // Service worker minimo: l'app si apre anche offline (dalla schermata Home).
 // Strategia "prima la rete": i file aggiornati arrivano subito, la cache serve solo offline.
-const CACHE = "carburanti-v5";
-const SHELL = ["./", "index.html", "style.css", "app.js", "config.js", "demo.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png"];
+const CACHE = "pienofurbo-v1";
+const SHELL = [
+  "./", "index.html", "style.css", "app.js", "config.js", "demo.js", "manifest.webmanifest",
+  "icons/logo-mark.svg", "icons/favicon.svg", "icons/favicon-32.png", "icons/icon.svg",
+  "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png",
+];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
