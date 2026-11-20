@@ -209,5 +209,12 @@
       .map(([name, lat, lng]) => ({ name, detail: name.replace(/ \(.*/, "") + ", Veneto, Italia (demo)", lat, lng }));
   }
 
-  window.CarburantiDemo = { search, station, history, average, geocode };
+  async function route(a, b) {
+    await delay(500);
+    const km = haversine(a, b) * 1.3;
+    const mwKm = km > 25 ? km * 0.7 : 0;
+    return { km, min: km / 80 * 60, mwKm, roads: mwKm ? ["A13"] : [] };
+  }
+
+  window.CarburantiDemo = { search, station, history, average, geocode, route };
 })();

@@ -1,6 +1,6 @@
 // Service worker minimo: l'app si apre anche offline (dalla schermata Home).
 // Strategia "prima la rete": i file aggiornati arrivano subito, la cache serve solo offline.
-const CACHE = "carburanti-v1";
+const CACHE = "carburanti-v2";
 const SHELL = ["./", "index.html", "style.css", "app.js", "config.js", "demo.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

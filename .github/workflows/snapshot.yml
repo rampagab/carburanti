@@ -1,0 +1,50 @@
+name: Storico prezzi
+
+on:
+  schedule:
+    # Ogni mattina: 8:47 in inverno, 9:47 con l'ora legale (orari UTC, GitHub può ritardare di qualche minuto).
+    - cron: "47 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Raccogli i prezzi
+        run: python scripts/snapshot.py
+
+      - name: Salva nel repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "Nessuna novità."
+            exit 0
+          fi
+          git commit -m "Storico prezzi $(TZ=Europe/Rome date +%F)"
+          git push
+          echo "PUSHED=1" >> "$GITHUB_ENV"
+
+      # I push fatti con il token di Actions potrebbero non ripubblicare il sito: lo chiedo esplicitamente.
+      - name: Ripubblica GitHub Pages
+        if: env.PUSHED == '1'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" --silent

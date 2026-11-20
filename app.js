@@ -47,6 +47,22 @@
     store.set("places", places);
   }
   const savePlaces = () => store.set("places", places);
+
+  // Auto configurate dall'utente: consumo in L/100 km (kg/100 km per il metano), serbatoio in L (kg).
+  let cars = store.get("cars", []);
+  if (!Array.isArray(cars)) cars = [];
+  let activeCarId = store.get("car", "");
+  const saveCars = () => { store.set("cars", cars); store.set("car", activeCarId); };
+  const activeCar = () => cars.find((c) => c.id === activeCarId) || null;
+  // L'auto entra nei calcoli solo se il carburante mostrato è il suo.
+  const carForFuel = () => { const c = activeCar(); return c && +c.fuel === +settings.fuel ? c : null; };
+  const ROAD_FACTOR = 1.3; // distanza in linea d'aria → strada (stima)
+  const CAR_PRESETS = {
+    1: { s: [5.5, 40], m: [6.5, 50], l: [8.5, 60] },
+    2: { s: [4.5, 40], m: [5.5, 50], l: [7, 65] },
+    4: { s: [7, 35], m: [8.5, 40], l: [10, 50] },
+    3: { s: [3.8, 12], m: [4.5, 15], l: [5.5, 20] },
+  };
   if (settings.zone !== "gps" && !places.some((p) => p.id === settings.zone)) settings.zone = "gps";
   const saveSettings = () => {
     const { zone, fuel, mode, radius, sort, liters } = settings;
@@ -114,6 +130,12 @@
     let name = (x && x.name) || a.road || town || String((x && x.display_name) || "").split(",")[0];
     if (town && name !== town) name += ", " + town;
     return prov && /^[A-Z]{2}$/.test(prov) ? name + " (" + prov + ")" : name;
+  }
+
+  function haversine(a, b) {
+    const r = Math.PI / 180;
+    const x = Math.sin((b.lat - a.lat) * r / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin((b.lng - a.lng) * r / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.sqrt(x));
   }
 
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -193,6 +215,31 @@
         return placeName(x);
       } catch (_) { return ""; }
     },
+    // Percorso stradale: OSRM (server dimostrativo pubblico, gratuito, senza chiave).
+    async route(a, b) {
+      if (DEMO) return window.CarburantiDemo.route(a, b);
+      const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false&steps=true&alternatives=false`;
+      const j = await getJSON(url, 20000);
+      if (!j || j.code !== "Ok" || !j.routes || !j.routes.length) throw new Error("Percorso non trovato");
+      const r = j.routes[0];
+      let mw = 0;
+      const roads = [];
+      for (const leg of r.legs || []) {
+        for (const st of leg.steps || []) {
+          const refs = String(st.ref || "").split(/[;,]/).map((x) => x.replace(/\s+/g, "").toUpperCase());
+          const m = refs.map((x) => x.match(/^A\d+/)).find(Boolean);
+          if (m && !FREE_MOTORWAYS.has(m[0])) {
+            mw += st.distance;
+            if (!roads.includes(m[0])) roads.push(m[0]);
+          }
+        }
+      }
+      return { km: r.distance / 1000, min: r.duration / 60, mwKm: mw / 1000, roads };
+    },
+    async meta() {
+      if (DEMO) return { zones: [{ name: "Monselice", lat: 45.2414, lng: 11.7497, radius: 15 }, { name: "Padova", lat: 45.4064, lng: 11.8768, radius: 15 }] };
+      try { return await getJSON(`${CFG.DATA_URL || "data"}/meta.json`, 8000); } catch (_) { return null; }
+    },
     async average() {
       if (DEMO) return window.CarburantiDemo.average();
       try { return await getJSON(`${CFG.DATA_URL || "data"}/average.json`, 8000); } catch (_) { return null; }
@@ -207,6 +254,7 @@
     fromCache: null,  // timestamp se mostro dati in cache
     gps: null,        // ultima posizione GPS
     average: null,
+    meta: null,       // data/meta.json: zone raccolte dallo storico
     reqId: 0,
   };
 
@@ -232,14 +280,26 @@
       .filter((x) => x.f);
   }
 
+  // Distributore di riferimento: il più vicino (quello dove andresti senza spostarti).
+  function nearestRef(rows) {
+    return rows.reduce((best, x) => (!best || (x.s.distance ?? 99) < (best.s.distance ?? 99) ? x : best), null);
+  }
+  // Quanto risparmi sul pieno rispetto al più vicino, tolto il carburante per la deviazione (andata e ritorno).
+  function netSaving(x, ref, car) {
+    const extraKm = 2 * Math.max(0, (x.s.distance ?? 0) - (ref.s.distance ?? 0)) * ROAD_FACTOR;
+    return (ref.f.price - x.f.price) * car.tank - (extraKm * car.cons / 100) * x.f.price;
+  }
+
   function visible() {
     let rows = priced();
     if (settings.brand) rows = rows.filter((x) => (x.s.brand || "") === settings.brand);
     if (settings.fresh) rows = rows.filter((x) => ago(x.s.insertDate).hours <= 24);
     if (settings.favOnly) rows = rows.filter((x) => favs.has(String(x.s.id)));
     const byPrice = (a, b) => a.f.price - b.f.price || (a.s.distance ?? 99) - (b.s.distance ?? 99);
+    const car = carForFuel(), ref = car && nearestRef(priced());
     const sorters = {
       price: byPrice,
+      net: car && ref ? (a, b) => netSaving(b, ref, car) - netSaving(a, ref, car) || byPrice(a, b) : byPrice,
       distance: (a, b) => (a.s.distance ?? 99) - (b.s.distance ?? 99) || a.f.price - b.f.price,
       date: (a, b) => (Date.parse(b.s.insertDate) || 0) - (Date.parse(a.s.insertDate) || 0) || byPrice(a, b),
     };
@@ -318,7 +378,10 @@
         b.setAttribute("aria-checked", String(String(b.dataset.v) === String(segs[sel])));
       });
     }
-    $("#sel-sort").value = settings.sort;
+    const sortOpts = [["price", "Prezzo"], ["distance", "Distanza"], ["date", "Aggiornamento"]];
+    if (carForFuel()) sortOpts.push(["net", "Convenienza"]);
+    $("#sel-sort").innerHTML = sortOpts.map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
+    $("#sel-sort").value = sortOpts.some((o) => o[0] === settings.sort) ? settings.sort : "price";
     $("#tg-fresh").setAttribute("aria-pressed", String(settings.fresh));
     $("#tg-fav").setAttribute("aria-pressed", String(settings.favOnly));
 
@@ -344,8 +407,17 @@
     n.innerHTML = html;
   }
 
+  // Zona dello storico vicina al centro attuale (la media ha senso solo lì).
+  function nearHistoryZone() {
+    const c = currentCenter();
+    const zones = (state.meta && state.meta.zones) || [];
+    if (!c) return null;
+    return zones.some((z) => haversine(c, z) <= (z.radius || 15) + 5) ? zones.map((z) => z.name).join("–") : null;
+  }
+
   function trendInfo() {
     const avg = state.average;
+    if (!nearHistoryZone()) return null;
     const k = settings.fuel + "-" + settings.mode;
     if (!avg || !avg.days || avg.days.length < 2) return null;
     const days = avg.days.filter((d) => d.v && d.v[k]);
@@ -375,7 +447,10 @@
     const min = Math.min(...prices);
     const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
     const best = rows.filter((x) => x.f.price === min).sort((a, b) => (a.s.distance ?? 99) - (b.s.distance ?? 99))[0];
-    const saving = (mean - min) * settings.liters;
+    const car = carForFuel();
+    const qty = car ? car.tank : settings.liters;
+    const qu = +settings.fuel === 3 ? "kg" : "L";
+    const saving = (mean - min) * qty;
     const tr = trendInfo();
     let trend = "";
     if (tr) {
@@ -389,7 +464,7 @@
         advice = w <= -0.5 ? "Prezzi in discesa: se puoi aspettare, aspetta." : w >= 0.5 ? "Prezzi in salita: conviene fare il pieno oggi." : "Settimana stabile: nessuna fretta.";
       }
       trend = `<div class="trend ${cls}"><span class="arrow" aria-hidden="true">${arrow}</span>
-        <span><strong>Media area ${label}</strong>${advice ? `<br><span class="muted">${advice}</span>` : ""}</span></div>`;
+        <span><strong>Media ${esc(nearHistoryZone())} ${label}</strong>${advice ? `<br><span class="muted">${advice}</span>` : ""}</span></div>`;
     }
     const center = currentCenter();
     el.innerHTML = `<div class="card sum">
@@ -403,17 +478,29 @@
         </div>
         <dl class="sum-stats">
           <div><dt>Media zona</dt><dd>${price(mean)}</dd></div>
-          <div><dt>Risparmio ${settings.liters} ${+settings.fuel === 3 ? "kg" : "L"}</dt><dd>${nf2.format(saving)} €</dd></div>
-          <div><dt>Impianti</dt><dd>${rows.length}</dd></div>
+          ${car ? `<div><dt>Pieno ${nf1.format(qty).replace(",0", "")} ${qu}</dt><dd>${nf2.format(min * qty)} €</dd></div>` : ""}
+          <div><dt>Risparmio ${nf1.format(qty).replace(",0", "")} ${qu}</dt><dd>${nf2.format(saving)} €</dd></div>
+          ${car ? "" : `<div><dt>Impianti</dt><dd>${rows.length}</dd></div>`}
         </dl>
       </div>
+      ${car ? `<div class="car-line"><strong>${esc(car.name)}</strong>: ${nf2.format(car.cons / 100 * min * 100)} € ogni 100 km al prezzo migliore.<br><span class="muted">Sulle schede: quanto risparmi sul pieno rispetto al distributore più vicino, già tolto il carburante per arrivarci.</span></div>` : ""}
       ${trend}
-      <div class="sum-foot muted">${esc(center ? center.name : "")} · raggio ${settings.radius} km${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
+      <div class="sum-foot muted">${esc(center ? center.name : "")} · raggio ${settings.radius} km${car ? " · " + rows.length + " impianti" : ""}${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
     </div>`;
   }
 
-  function cardHTML({ s, f }, min) {
+  function cardHTML({ s, f }, min, ref, car) {
     const a = ago(s.insertDate);
+    let net = "";
+    if (car && ref) {
+      if (ref.s.id === s.id) net = `<span class="net">il più vicino</span>`;
+      else {
+        const v = netSaving({ s, f }, ref, car);
+        if (v >= 0.05) net = `<span class="net pos">risparmi ${nf2.format(v)} € netti</span>`;
+        else if (v <= -0.05) net = `<span class="net neg">non conviene: +${nf2.format(-v)} €</span>`;
+        else net = `<span class="net">come il più vicino</span>`;
+      }
+    }
     const stale = a.hours > 72;
     const diff = f.price - min;
     const fav = favs.has(String(s.id));
@@ -430,7 +517,7 @@
         <p class="addr">${esc(sub)}</p>
         <p class="meta">${s.distance != null ? `<span>${km(s.distance)}</span>` : ""}
           <span class="${stale ? "stale" : ""}">${stale ? "⚠ " : ""}aggiornato ${esc(a.text)}</span>
-          ${f.name && f.name !== FUELS[settings.fuel] ? `<span class="prod">${esc(f.name)}</span>` : ""}</p>
+          ${f.name && f.name !== FUELS[settings.fuel] ? `<span class="prod">${esc(f.name)}</span>` : ""}${net}</p>
       </div>
       <div class="st-actions">
         <button class="star" data-fav="${esc(s.id)}" aria-pressed="${fav}" aria-label="${fav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}">
@@ -477,7 +564,8 @@
       return;
     }
     const min = Math.min(...all.map((x) => x.f.price));
-    let html = rows.map((r) => cardHTML(r, min)).join("");
+    const car = carForFuel(), ref = car ? nearestRef(all) : null;
+    let html = rows.map((r) => cardHTML(r, min, ref, car)).join("");
     if (state.error && !state.fromCache) html = `<div class="card state err small"><p>${esc(state.error)}</p><button class="btn" data-retry>Riprova</button></div>` + html;
     el.innerHTML = html;
   }
@@ -565,7 +653,8 @@
   function chartHTML(hist, avg, key) {
     const series = (hist && hist.days ? hist.days : []).filter((d) => d.v && d.v[key] != null).map((d) => ({ d: d.d, p: d.v[key] }));
     if (series.length < 2) {
-      return `<p class="muted">Storico non ancora disponibile: si costruisce giorno per giorno con la raccolta automatica.</p>`;
+      const zones = state.meta && state.meta.zones ? state.meta.zones.map((z) => z.name).join(" e ") : "";
+      return `<p class="muted">Storico non ancora disponibile per questo impianto. Si costruisce giorno per giorno${zones ? ", solo per i distributori nella zona di " + esc(zones) : ""}.</p>`;
     }
     const last = series.slice(-90);
     const from = last[0].d;
@@ -660,6 +749,7 @@
       <div class="sh-hero">
         <div><span class="big">${price(f && f.price)}</span><span class="u">${unit(settings.fuel)}</span>
           <div class="muted">${esc(FUELS[settings.fuel])} ${+settings.mode === 1 ? "self" : "servito"}${s.distance != null ? " · " + km(s.distance) : ""}</div>
+          ${carForFuel() && f ? `<div class="muted">Pieno ${esc(carForFuel().name)} (${nf1.format(carForFuel().tank).replace(",0", "")} ${+settings.fuel === 3 ? "kg" : "L"}): <strong>${nf2.format(f.price * carForFuel().tank)} €</strong></div>` : ""}
           <div class="${a.hours > 72 ? "stale" : "muted"}">${a.hours > 72 ? "⚠ Dato vecchio: " : ""}aggiornato ${esc(a.text)}</div>
         </div>
         <div class="sh-btns">
@@ -702,11 +792,24 @@
   // ---------- Impostazioni ----------
   function openSettings() {
     sheetReq++;
+    const carRow = (c) => `<li>
+        <button class="pl-name car-pick" data-car-use="${esc(c.id)}" aria-pressed="${c.id === activeCarId}">
+          <span class="radio" aria-hidden="true"></span><span><strong>${esc(c.name)}</strong>
+          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(c.cons)} ${+c.fuel === 3 ? "kg" : "L"}/100 km (${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"}) · serbatoio ${nf1.format(c.tank).replace(",0", "")}</span></span></button>
+        <span class="pl-btns"><button class="icon-btn" data-car-edit="${esc(c.id)}" aria-label="Modifica ${esc(c.name)}">✎</button>
+        <button class="icon-btn" data-car-del="${esc(c.id)}" aria-label="Elimina ${esc(c.name)}">✕</button></span></li>`;
     openSheet(`<header class="sh-head"><h2 id="sheet-title">Impostazioni</h2></header>
       <section>
-        <label class="field"><span>Litri (o kg) del pieno</span>
+        <h3>Le tue auto</h3>
+        ${cars.length ? `<ul class="places cars">${cars.map(carRow).join("")}
+          <li><button class="pl-name car-pick" data-car-use="" aria-pressed="${!activeCar()}"><span class="radio" aria-hidden="true"></span><span>Nessuna auto</span></button></li></ul>`
+          : `<p class="muted small">Aggiungi la tua auto: l'app calcola il costo del pieno, quanto spendi ogni 100 km e se conviene andare a un distributore più lontano.</p>`}
+        <button class="btn here" data-car-new>+ Aggiungi auto</button>
+      </section>
+      <section>
+        <label class="field"><span>Litri (o kg) del pieno, senza auto</span>
           <input id="in-liters" type="number" inputmode="numeric" min="5" max="200" step="1" value="${settings.liters}"></label>
-        <p class="muted small">Serve per calcolare il risparmio nel riepilogo.</p>
+        <p class="muted small">Serve per il risparmio nel riepilogo quando non c'è un'auto per il carburante scelto.</p>
       </section>
       <section>
         <h3>Dati</h3>
@@ -727,6 +830,228 @@
       store.clearCache();
       e.target.textContent = "Dati offline eliminati";
       e.target.disabled = true;
+    });
+  }
+
+  function openCarForm(car) {
+    sheetReq++;
+    const c = car || { name: "", fuel: +settings.fuel || 2, cons: "", tank: "" };
+    openSheet(`<header class="sh-head"><h2 id="sheet-title">${car ? "Modifica auto" : "Nuova auto"}</h2></header>
+      <form id="car-form" class="form" data-id="${esc(car ? car.id : "")}" autocomplete="off">
+        <label class="field"><span>Nome</span><input name="name" required maxlength="40" placeholder="Es. Panda, Golf, auto di lavoro" value="${esc(c.name)}"></label>
+        <label class="field"><span>Carburante</span><select name="fuel">${[2, 1, 4, 3].map((f) => `<option value="${f}"${+c.fuel === f ? " selected" : ""}>${FUELS[f]}</option>`).join("")}</select></label>
+        <div class="field"><span>Tipo di auto (riempie i campi sotto con valori tipici)</span>
+          <div class="preset-row"><button type="button" class="btn" data-preset="s">Piccola</button><button type="button" class="btn" data-preset="m">Media</button><button type="button" class="btn" data-preset="l">Grande / SUV</button></div></div>
+        <div class="field"><span>Consumo medio</span>
+          <div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="100" required value="${c.cons ? String(c.cons).replace(",", ".") : ""}">
+          <select name="unit"><option value="l100">L/100 km</option><option value="kml">km/L</option></select></div></div>
+        <label class="field"><span>Capienza serbatoio (L, kg per il metano)</span><input name="tank" type="number" inputmode="decimal" step="1" min="5" max="150" required value="${c.tank || ""}"></label>
+        <p class="muted small">Il consumo reale lo trovi sul computer di bordo, oppure dopo un pieno: km percorsi ÷ litri = km/L.</p>
+        <p class="form-err" role="alert" hidden></p>
+        <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-settings>Annulla</button></div>
+      </form>`);
+  }
+
+  function saveCarForm(form) {
+    const fd = new FormData(form);
+    const fuel = +fd.get("fuel");
+    let cons = parseFloat(String(fd.get("cons")).replace(",", "."));
+    if (fd.get("unit") === "kml" && cons > 0) cons = 100 / cons;
+    const tank = parseFloat(String(fd.get("tank")).replace(",", "."));
+    const name = String(fd.get("name") || "").trim();
+    const err = $(".form-err", form);
+    if (!name || !(cons >= 1 && cons <= 30) || !(tank >= 5 && tank <= 150)) {
+      err.hidden = false;
+      err.textContent = !name ? "Scrivi un nome." : !(cons >= 1 && cons <= 30) ? "Il consumo deve essere tra 1 e 30 L/100 km (oppure tra 3,3 e 100 km/L)." : "Il serbatoio deve essere tra 5 e 150.";
+      return;
+    }
+    const id = form.dataset.id || "c" + Date.now().toString(36);
+    const car = { id, name, fuel, cons: Math.round(cons * 100) / 100, tank: Math.round(tank * 10) / 10 };
+    const i = cars.findIndex((x) => x.id === id);
+    if (i >= 0) cars[i] = car; else cars.push(car);
+    useCar(id);
+    openSettings();
+  }
+
+  function useCar(id) {
+    activeCarId = id;
+    saveCars();
+    const c = activeCar();
+    if (c && +settings.fuel !== +c.fuel) {
+      settings.fuel = +c.fuel;
+      if (c.fuel === 3 || c.fuel === 4) settings.mode = 0;
+      settings.brand = "";
+      saveSettings();
+      load();
+    } else render();
+  }
+
+  // ---------- Viaggio ----------
+  // Autostrade senza pedaggio (non entrano nella stima).
+  const FREE_MOTORWAYS = new Set(["A2", "A19", "A29", "A90", "A91"]);
+  const FALLBACK_PRICE = { 1: 1.95, 2: 2.0, 3: 1.5, 4: 0.8 };
+  const tripPrefs = Object.assign({ tollRate: 0.08, people: 1, roundTrip: false, cons: 6.5 }, store.get("trip", {}));
+  const trip = { from: "gps", to: null, results: [], msg: "", res: null, tollReal: "", price: "" };
+
+  function tripFuel() { const c = activeCar(); return c ? +c.fuel : +settings.fuel; }
+  function defaultTripPrice() {
+    const fuel = tripFuel();
+    if (+settings.fuel === fuel) {
+      const rows = priced();
+      if (rows.length) return rows.reduce((a, x) => a + x.f.price, 0) / rows.length;
+    }
+    const days = state.average && state.average.days;
+    const last = days && days[days.length - 1];
+    const v = last && last.v && (last.v[fuel + "-1"] || last.v[fuel + "-0"]);
+    return v ? v.avg : FALLBACK_PRICE[fuel];
+  }
+  function getPosition() {
+    if (state.gps) return Promise.resolve(state.gps);
+    return new Promise((ok, ko) => {
+      if (!navigator.geolocation) return ko(new Error("Posizione non disponibile su questo dispositivo"));
+      navigator.geolocation.getCurrentPosition(
+        (p) => { state.gps = { lat: p.coords.latitude, lng: p.coords.longitude, name: "La tua posizione" }; ok(state.gps); },
+        () => ko(new Error("Posizione non disponibile: scegli una partenza tra i tuoi luoghi")),
+        { timeout: 12000, maximumAge: 120000 });
+    });
+  }
+  function readTripForm() {
+    const f = $("#trip-form");
+    if (!f) return;
+    trip.from = f.from.value;
+    tripPrefs.roundTrip = f.round.checked;
+    tripPrefs.people = Math.min(9, Math.max(1, Math.round(+f.people.value) || 1));
+    if (f.cons) { const c = parseFloat(String(f.cons.value).replace(",", ".")); if (c >= 1 && c <= 30) tripPrefs.cons = c; }
+    trip.price = f.price.value;
+    const t = parseFloat(String(f.toll.value).replace(",", "."));
+    if (t >= 0 && t <= 1) tripPrefs.tollRate = t;
+    store.set("trip", tripPrefs);
+  }
+
+  function tripResultHTML() {
+    const r = trip.res;
+    if (!r) return "";
+    const car = activeCar();
+    const cons = car ? car.cons : tripPrefs.cons;
+    const mult = tripPrefs.roundTrip ? 2 : 1;
+    const priceL = parseFloat(String(trip.price).replace(",", ".")) || defaultTripPrice();
+    const kmTot = r.km * mult, mwTot = r.mwKm * mult, minTot = r.min * mult;
+    const liters = kmTot * cons / 100;
+    const fuelCost = liters * priceL;
+    const tollEst = mwTot * tripPrefs.tollRate;
+    const real = parseFloat(String(trip.tollReal).replace(",", "."));
+    const toll = real >= 0 ? real : tollEst;
+    const total = fuelCost + toll;
+    const people = tripPrefs.people;
+    const u = tripFuel() === 3 ? "kg" : "L";
+    const h = Math.floor(minTot / 60), m = Math.round(minTot % 60);
+    const from = trip.fromPoint, to = trip.to;
+    const maps = isIOS
+      ? `https://maps.apple.com/?saddr=${from.lat},${from.lng}&daddr=${to.lat},${to.lng}&dirflg=d`
+      : `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=driving`;
+    return `<div class="card trip-res">
+      <div class="eyebrow">Costo ${tripPrefs.roundTrip ? "andata e ritorno" : "solo andata"} · ${esc(to.name)}</div>
+      <div class="trip-total"><span class="big">${nf2.format(total)}</span><span class="u">€</span></div>
+      ${people > 1 ? `<div class="muted"><strong>${nf2.format(total / people)} € a testa</strong> (${people} persone)</div>` : ""}
+      <dl class="trip-dl">
+        <div><dt>Distanza</dt><dd>${nf1.format(kmTot)} km</dd></div>
+        <div><dt>Tempo di guida</dt><dd>${h ? h + " h " : ""}${m} min</dd></div>
+        <div><dt>Carburante</dt><dd>${nf1.format(liters)} ${u} · ${nf2.format(fuelCost)} €</dd></div>
+        <div><dt>Autostrada a pagamento</dt><dd>${nf1.format(mwTot)} km${r.roads.length ? " · " + esc(r.roads.join(", ")) : ""}</dd></div>
+        <div><dt>Pedaggi ${real >= 0 ? "(importo reale)" : "(stima)"}</dt><dd>${nf2.format(toll)} €</dd></div>
+      </dl>
+      <label class="field"><span>Importo reale dei pedaggi${tripPrefs.roundTrip ? " (andata e ritorno)" : ""}, se lo conosci</span>
+        <input id="toll-real" type="number" inputmode="decimal" step="0.1" min="0" value="${esc(trip.tollReal)}" placeholder="${nf2.format(tollEst).replace(",", ".")}"></label>
+      <a class="btn primary" href="${maps}" target="_blank" rel="noopener">Apri il percorso in Mappe</a>
+      <p class="muted small">Stima: km di autostrada a pagamento × ${nf3.format(tripPrefs.tollRate)} €/km. L'importo vero dipende dalle tratte e dai caselli: lo trovi sul sito di Autostrade per l'Italia o nelle app di navigazione. Le autostrade gratuite (A2, A19, A29, A90, A91) non sono conteggiate. Consumo: ${nf1.format(cons)} ${u}/100 km${car ? " (" + esc(car.name) + ")" : ""}.</p>
+    </div>`;
+  }
+
+  function tripHTML() {
+    const car = activeCar();
+    const fuel = tripFuel();
+    const u = fuel === 3 ? "kg" : "L";
+    const dest = trip.to
+      ? `<div class="picked"><span><strong>${esc(trip.to.name)}</strong></span><button type="button" class="icon-btn" data-trip-clear aria-label="Cambia arrivo">✕</button></div>`
+      : `<div class="inline"><input name="q" type="search" placeholder="Comune o indirizzo" enterkeyhint="search" aria-label="Cerca l'arrivo"><button class="btn" type="button" data-trip-search>Cerca</button></div>
+        ${places.length ? `<div class="preset-row">${places.map((p) => `<button type="button" class="btn small-btn" data-trip-to="${esc(p.id)}">${esc(p.name)}</button>`).join("")}</div>` : ""}
+        ${trip.msg ? `<p class="muted small" role="status">${trip.msg}</p>` : ""}
+        ${trip.results.length ? `<ul class="results">${trip.results.map((r, i) => `<li><button type="button" data-trip-pick="${i}"><strong>${esc(r.name)}</strong><span class="muted small">${esc(r.detail || "")}</span></button></li>`).join("")}</ul>` : ""}`;
+    return `<header class="sh-head"><h2 id="sheet-title">Viaggio</h2><p class="muted">Quanto costa un tragitto: carburante e pedaggi.</p></header>
+      <form id="trip-form" class="form" autocomplete="off">
+        <label class="field"><span>Partenza</span><select name="from">
+          <option value="gps">La mia posizione</option>${places.map((p) => `<option value="${esc(p.id)}"${trip.from === p.id ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
+        <div class="field"><span>Arrivo</span>${dest}</div>
+        <div class="inline trip-opts">
+          <label class="check"><input type="checkbox" name="round"${tripPrefs.roundTrip ? " checked" : ""}> Andata e ritorno</label>
+          <label class="check">Persone <input name="people" type="number" inputmode="numeric" min="1" max="9" value="${tripPrefs.people}"></label>
+        </div>
+        <div class="field"><span>Auto</span>${car
+          ? `<p class="car-sum"><strong>${esc(car.name)}</strong> · ${esc(FUELS[car.fuel])} · ${nf1.format(car.cons)} ${u}/100 km <button type="button" class="linkish" data-settings>cambia</button></p>`
+          : `<div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="30" value="${tripPrefs.cons}" aria-label="Consumo"><span class="unit">${u}/100 km</span></div>
+             <p class="muted small">Oppure <button type="button" class="linkish" data-car-new>aggiungi la tua auto</button>.</p>`}</div>
+        <label class="field"><span>Prezzo ${esc(FUELS[fuel])} (€/${u})</span>
+          <input name="price" type="number" inputmode="decimal" step="0.001" min="0.3" max="5" value="${esc(trip.price)}" placeholder="${defaultTripPrice().toFixed(3)}"></label>
+        <label class="field"><span>Pedaggio medio (€ per km di autostrada)</span>
+          <input name="toll" type="number" inputmode="decimal" step="0.001" min="0" max="1" value="${tripPrefs.tollRate}"></label>
+        <p class="form-err" role="alert" hidden></p>
+        <button class="btn primary" type="submit">Calcola</button>
+      </form>
+      <div id="trip-out" aria-live="polite">${tripResultHTML()}</div>
+      <p class="muted small">Percorso calcolato con OSRM e ricerca con OpenStreetMap: ricevono solo i punti di partenza e arrivo.</p>`;
+  }
+
+  function openTrip(keepScroll) {
+    sheetReq++;
+    const top = sheet.scrollTop;
+    openSheet(tripHTML());
+    if (keepScroll) sheet.scrollTop = top;
+    const real = $("#toll-real");
+    if (real) real.addEventListener("change", (e) => { trip.tollReal = e.target.value; readTripForm(); openTrip(true); });
+  }
+
+  async function tripSearch() {
+    const f = $("#trip-form");
+    const q = f && f.q ? f.q.value.trim() : "";
+    readTripForm();
+    if (q.length < 2) return;
+    trip.msg = "Cerco…"; trip.results = []; openTrip(true);
+    try {
+      trip.results = await api.geocode(q);
+      trip.msg = trip.results.length ? "" : "Nessun risultato. Prova con il nome del comune.";
+    } catch (err) { trip.msg = "Ricerca non riuscita: " + esc(err.message || err); }
+    openTrip(true);
+  }
+
+  async function tripCalc(form) {
+    readTripForm();
+    const err = $(".form-err", form);
+    const fail = (m) => { err.hidden = false; err.textContent = m; };
+    if (!trip.to) return fail("Scegli l'arrivo.");
+    let from;
+    try {
+      from = trip.from === "gps" ? await getPosition() : places.find((p) => p.id === trip.from);
+    } catch (e) { return fail(e.message); }
+    if (!from) return fail("Scegli la partenza.");
+    const btn = $("button[type=submit]", form);
+    btn.disabled = true; btn.textContent = "Calcolo…";
+    try {
+      trip.res = await api.route(from, trip.to);
+      trip.fromPoint = { lat: from.lat, lng: from.lng };
+      openTrip(true);
+      const out = $("#trip-out");
+      if (out) out.scrollIntoView({ block: "start", behavior: "smooth" });
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "Calcola";
+      fail("Percorso non calcolato: " + (e.message || e));
+    }
+  }
+
+  function loadHistoryMeta() {
+    Promise.all([api.average(), api.meta()]).then(([a, m]) => {
+      state.average = a || state.average;
+      state.meta = m || state.meta;
+      render();
     });
   }
 
@@ -809,6 +1134,35 @@
   document.addEventListener("click", (e) => {
     const t = e.target;
     if (t.closest("[data-places]")) { placeResults = []; openPlaces(); return; }
+    if (t.closest("[data-car-new]")) { openCarForm(null); return; }
+    if (t.closest("[data-trip-search]")) { tripSearch(); return; }
+    const tTo = t.closest("[data-trip-to]");
+    if (tTo) { readTripForm(); const p = places.find((x) => x.id === tTo.dataset.tripTo); if (p) { trip.to = { ...p }; trip.res = null; } openTrip(true); return; }
+    const tPick = t.closest("[data-trip-pick]");
+    if (tPick) { readTripForm(); trip.to = trip.results[+tPick.dataset.tripPick]; trip.results = []; trip.res = null; openTrip(true); return; }
+    if (t.closest("[data-trip-clear]")) { readTripForm(); trip.to = null; trip.res = null; trip.tollReal = ""; openTrip(true); return; }
+    if (t.closest("[data-settings]")) { openSettings(); return; }
+    const cUse = t.closest("[data-car-use]");
+    if (cUse) { useCar(cUse.dataset.carUse); openSettings(); return; }
+    const cEdit = t.closest("[data-car-edit]");
+    if (cEdit) { openCarForm(cars.find((c) => c.id === cEdit.dataset.carEdit)); return; }
+    const cDel = t.closest("[data-car-del]");
+    if (cDel) {
+      const c = cars.find((x) => x.id === cDel.dataset.carDel);
+      if (c && window.confirm(`Eliminare «${c.name}»?`)) {
+        cars = cars.filter((x) => x !== c);
+        if (activeCarId === c.id) activeCarId = "";
+        saveCars(); render();
+      }
+      openSettings(); return;
+    }
+    const preset = t.closest("[data-preset]");
+    if (preset) {
+      const form = preset.closest("form");
+      const pr = CAR_PRESETS[+form.fuel.value][preset.dataset.preset];
+      form.cons.value = pr[0]; form.unit.value = "l100"; form.tank.value = pr[1];
+      return;
+    }
     const pAdd = t.closest("[data-place-add]");
     if (pAdd) { addPlace(placeResults[+pAdd.dataset.placeAdd]); return; }
     if (t.closest("[data-place-here]")) { saveHere(); return; }
@@ -869,7 +1223,12 @@
     const open = t.closest("[data-open]");
     if (open && !open.closest("#sheet")) { openStation(open.dataset.open); return; }
   });
+  document.addEventListener("submit", (e) => {
+    if (e.target.id === "car-form") { e.preventDefault(); saveCarForm(e.target); }
+    if (e.target.id === "trip-form") { e.preventDefault(); tripCalc(e.target); }
+  });
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.matches("#trip-form [name=q]")) { e.preventDefault(); tripSearch(); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches("article[data-open]")) {
       e.preventDefault();
       openStation(e.target.dataset.open);
@@ -882,9 +1241,10 @@
   $("#tg-fav").addEventListener("click", () => { settings.favOnly = !settings.favOnly; render(); });
   $("#btn-refresh").addEventListener("click", () => {
     if (settings.zone === "gps") locate(); else load();
-    api.average().then((a) => { if (a) { state.average = a; render(); } });
+    loadHistoryMeta();
   });
   $("#btn-settings").addEventListener("click", openSettings);
+  $("#btn-trip").addEventListener("click", () => openTrip());
 
   // Aggiorna quando l'app torna in primo piano dopo più di 10 minuti.
   let hiddenAt = 0;
@@ -897,7 +1257,7 @@
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
-  api.average().then((a) => { if (a) { state.average = a; render(); } });
+  loadHistoryMeta();
   if (settings.zone === "gps") locate(); else load();
   render();
 })();
