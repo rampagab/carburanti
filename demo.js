@@ -213,7 +213,8 @@
     await delay(500);
     const km = haversine(a, b) * 1.3;
     const mwKm = km > 25 ? km * 0.7 : 0;
-    return { km, min: km / 80 * 60, mwKm, roads: mwKm ? ["A13"] : [] };
+    const byRef = mwKm ? { A13: mwKm * 0.6, A4: mwKm * 0.4 } : {};
+    return { km, min: km / 80 * 60, mwKm, byRef, roads: Object.keys(byRef) };
   }
 
   window.CarburantiDemo = { search, station, history, average, geocode, route };

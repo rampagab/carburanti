@@ -225,19 +225,18 @@
       const j = await getJSON(url, 20000);
       if (!j || j.code !== "Ok" || !j.routes || !j.routes.length) throw new Error("Percorso non trovato");
       const r = j.routes[0];
-      let mw = 0;
-      const roads = [];
+      const tolls = await api.tolls();
+      const byRef = {};
       for (const leg of r.legs || []) {
         for (const st of leg.steps || []) {
           const refs = String(st.ref || "").split(/[;,]/).map((x) => x.replace(/\s+/g, "").toUpperCase());
           const m = refs.map((x) => x.match(/^A\d+/)).find(Boolean);
-          if (m && !FREE_MOTORWAYS.has(m[0])) {
-            mw += st.distance;
-            if (!roads.includes(m[0])) roads.push(m[0]);
-          }
+          // A pagamento: le autostrade in concessione (dati ART); senza dati, tutte tranne le note gratuite.
+          if (m && (tolls ? tolls.refs[m[0]] : !FREE_MOTORWAYS.has(m[0]))) byRef[m[0]] = (byRef[m[0]] || 0) + st.distance / 1000;
         }
       }
-      return { km: r.distance / 1000, min: r.duration / 60, mwKm: mw / 1000, roads };
+      const mwKm = Object.values(byRef).reduce((a, b) => a + b, 0);
+      return { km: r.distance / 1000, min: r.duration / 60, mwKm, byRef, roads: Object.keys(byRef) };
     },
     // Database auto (EEA, generato da scripts/build_cars.py): indice marche e un file per marca.
     async carIndex() {
@@ -247,6 +246,11 @@
     async carMake(file) {
       if (!carCache[file]) carCache[file] = getJSON(`${CFG.DATA_URL || "data"}/cars/${encodeURIComponent(file)}.json`, 15000).catch((e) => { delete carCache[file]; throw e; });
       return carCache[file];
+    },
+    // Tariffe di pedaggio per autostrada (data/tolls.json, da scripts/build_tolls.py).
+    async tolls() {
+      if (carCache.tolls === undefined) carCache.tolls = getJSON(`${CFG.DATA_URL || "data"}/tolls.json`, 8000).catch(() => null);
+      return carCache.tolls;
     },
     async meta() {
       if (DEMO) return { zones: [{ name: "Monselice", lat: 45.2414, lng: 11.7497, radius: 15 }, { name: "Padova", lat: 45.4064, lng: 11.8768, radius: 15 }] };
@@ -827,7 +831,7 @@
       </section>
       <section class="group">
         <h3>Dati</h3>
-        <p class="muted small">${DEMO ? "Modalità demo: dati finti." : "Prezzi MIMIT (IODL 2.0) · Auto EEA (CC BY 4.0) · Mappe OpenStreetMap, OSRM."}
+        <p class="muted small">${DEMO ? "Modalità demo: dati finti." : "Prezzi MIMIT (IODL 2.0) · Auto EEA (CC BY 4.0) · Pedaggi Autostrade per l'Italia e ART (CC BY 4.0) · Mappe OpenStreetMap, OSRM."}
         ${state.average && state.average.updated ? `<br>Storico aggiornato ${esc(ago(state.average.updated).text)}.` : ""}</p>
         <button class="btn" id="btn-clear-cache">Svuota dati offline</button>
       </section>
@@ -1046,6 +1050,7 @@
   // ---------- Viaggio ----------
   // Autostrade senza pedaggio (non entrano nella stima).
   const FREE_MOTORWAYS = new Set(["A2", "A19", "A29", "A90", "A91"]);
+  const DEFAULT_TOLL_RATE = 0.082;
   const FALLBACK_PRICE = { 1: 1.95, 2: 2.0, 3: 1.5, 4: 0.8 };
   const tripPrefs = Object.assign({ tollRate: 0.08, people: 1, roundTrip: false, cons: 6.5 }, store.get("trip", {}));
   const trip = { from: "gps", to: null, results: [], msg: "", res: null, tollReal: "", price: "" };
@@ -1080,8 +1085,6 @@
     tripPrefs.people = Math.min(9, Math.max(1, Math.round(+f.people.value) || 1));
     if (f.cons) { const c = parseFloat(String(f.cons.value).replace(",", ".")); if (c >= 1 && c <= 30) tripPrefs.cons = c; }
     trip.price = f.price.value;
-    const t = parseFloat(String(f.toll.value).replace(",", "."));
-    if (t >= 0 && t <= 1) tripPrefs.tollRate = t;
     store.set("trip", tripPrefs);
   }
 
@@ -1095,7 +1098,13 @@
     const kmTot = r.km * mult, mwTot = r.mwKm * mult, minTot = r.min * mult;
     const liters = kmTot * cons / 100;
     const fuelCost = liters * priceL;
-    const tollEst = mwTot * tripPrefs.tollRate;
+    const legs = Object.entries(r.byRef || {}).map(([ref, km]) => {
+      const rate = (trip.tolls && trip.tolls.refs[ref] ? trip.tolls.refs[ref].rate : (trip.tolls && trip.tolls.default_rate) || DEFAULT_TOLL_RATE);
+      return { ref, km: km * mult, eur: km * mult * rate };
+    });
+    // Come al casello: importo arrotondato ai 10 centesimi (per ogni viaggio di andata e di ritorno).
+    const oneWay = legs.reduce((a, l) => a + l.eur, 0) / mult;
+    const tollEst = Math.round(oneWay * 10) / 10 * mult;
     const real = parseFloat(String(trip.tollReal).replace(",", "."));
     const toll = real >= 0 ? real : tollEst;
     const total = fuelCost + toll;
@@ -1115,13 +1124,13 @@
         <div><dt>Distanza</dt><dd>${nf1.format(kmTot)} km</dd></div>
         <div><dt>Tempo di guida</dt><dd>${h ? h + " h " : ""}${m} min</dd></div>
         <div><dt>Carburante</dt><dd>${nf1.format(liters)} ${u} · ${nf2.format(fuelCost)} €</dd></div>
-        <div><dt>Autostrada a pagamento</dt><dd>${nf1.format(mwTot)} km${r.roads.length ? " · " + esc(r.roads.join(", ")) : ""}</dd></div>
-        <div><dt>Pedaggi ${real >= 0 ? "(importo reale)" : "(stima)"}</dt><dd>${nf2.format(toll)} €</dd></div>
+        <div><dt>Pedaggi ${real >= 0 ? "(reali)" : "(stima)"}</dt><dd>${nf2.format(toll)} €</dd></div>
       </dl>
+      ${legs.length ? `<ul class="tolls">${legs.map((l) => `<li><span>${esc(l.ref)}</span><span>${nf1.format(l.km)} km</span><span>${nf2.format(l.eur)} €</span></li>`).join("")}</ul>` : `<p class="muted small">Nessuna autostrada a pagamento sul percorso.</p>`}
       <label class="field"><span>Pedaggi reali${tripPrefs.roundTrip ? " (A/R)" : ""}</span>
         <input id="toll-real" type="number" inputmode="decimal" step="0.1" min="0" value="${esc(trip.tollReal)}" placeholder="${nf2.format(tollEst).replace(",", ".")}"></label>
       <div class="preset-row"><button type="button" class="btn primary" data-trip-split>Dividi la spesa</button><a class="btn" href="${maps}" target="_blank" rel="noopener">Apri in Mappe</a></div>
-      <p class="muted small">Pedaggi stimati: km a pagamento × ${nf3.format(tripPrefs.tollRate)} €/km.</p>
+      <p class="muted small">Stima con le tariffe ufficiali ${trip.tolls ? "2026 " : ""}pianura/montagna di ogni autostrada (Autostrade per l'Italia, ART). Il casello può differire.</p>
     </div>`;
   }
 
@@ -1149,8 +1158,6 @@
              <button type="button" class="linkish" data-car-new>+ aggiungi la tua auto</button>`}</div>
         <label class="field"><span>Prezzo ${esc(FUELS[fuel])} (€/${u})</span>
           <input name="price" type="number" inputmode="decimal" step="0.001" min="0.3" max="5" value="${esc(trip.price)}" placeholder="${defaultTripPrice().toFixed(3)}"></label>
-        <label class="field"><span>Pedaggio (€/km di autostrada)</span>
-          <input name="toll" type="number" inputmode="decimal" step="0.001" min="0" max="1" value="${tripPrefs.tollRate}"></label>
         <p class="form-err" role="alert" hidden></p>
         <button class="btn primary" type="submit">Calcola</button>
       </form>
@@ -1191,7 +1198,7 @@
     const btn = $("button[type=submit]", form);
     btn.disabled = true; btn.textContent = "Calcolo…";
     try {
-      trip.res = await api.route(from, trip.to);
+      [trip.res, trip.tolls] = await Promise.all([api.route(from, trip.to), api.tolls()]);
       trip.fromPoint = { lat: from.lat, lng: from.lng };
       openTrip(true);
       const out = $("#trip-out");

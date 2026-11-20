@@ -19,7 +19,9 @@ Su Safari: **Condividi › Aggiungi alla schermata Home**.
   - il costo del pieno;
   - quanto spendi ogni 100 km;
   - il **risparmio netto** di ogni distributore rispetto al più vicino, già tolto il carburante per arrivarci.
-- **Viaggio** (icona del percorso in alto): stima il costo di un tragitto, cioè carburante più pedaggi stimati sui km di autostrada a pagamento. Puoi scegliere andata e ritorno e dividere il costo tra più persone. Se conosci l'importo esatto dei pedaggi, puoi inserirlo al posto della stima.
+- **Viaggio:** stima il costo di un tragitto, cioè carburante più pedaggi. I pedaggi si calcolano per ogni autostrada del percorso, con le tariffe ufficiali di classe A (pianura e montagna) di Autostrade per l'Italia, pesate sulla quota di montagna di ogni concessionaria (dati ART). Il totale è arrotondato ai 10 centesimi come al casello, e l'importo esatto si può inserire a mano.
+- **Spese:** come Splitwise. Crei il viaggio con i partecipanti, aggiungi chi ha pagato cosa e vedi saldi e «chi deve quanto a chi». Si condivide con un link: chi lo apre importa o aggiorna il viaggio. Dal pianificatore, «Dividi la spesa» aggiunge subito carburante e pedaggi.
+- Menu in basso (Prezzi, Viaggio, Spese, Auto, Altro). L'aspetto è da iOS su iPhone e Material su Android, e il tema chiaro/scuro segue il sistema.
 - Scheda dell'impianto con:
   - tutti i prezzi;
   - lo storico in un grafico;
@@ -56,12 +58,18 @@ Il workflow **Database auto** lo rilancia a inizio luglio, quando di solito esce
 
 La ricerca per **targa** non c'è: in Italia non esiste un servizio gratuito e pubblico che la permetta.
 
+## Tariffe pedaggi (GitHub Actions)
+
+`scripts/build_tolls.py` legge le tariffe unitarie di classe A da autostrade.it, con valori di riserva aggiornati al 2026, e i dataset ART D17 e D22 da dati.gov.it. Poi genera `data/tolls.json`. Il workflow **Tariffe pedaggi** gira ogni 5 gennaio.
+**Limite:** alcune concessionarie, come BreBeMi, Pedemontana e TEEM, hanno tariffe più alte di quelle di Autostrade per l'Italia, quindi lì la stima è più bassa del vero.
+
 ## Servizi esterni (gratuiti, senza chiave)
 
 - Prezzi: Osservatorio prezzi carburanti del MIMIT. Licenza dei dati IODL 2.0. App personale, non affiliata al MIMIT.
 - Ricerca dei luoghi: OpenStreetMap Nominatim.
 - Percorsi: OSRM (server dimostrativo pubblico).
 - Auto: EEA, *Monitoring of CO2 emissions from passenger cars* (licenza CC BY 4.0).
+- Pedaggi: Autostrade per l'Italia (tariffe unitarie), Autorità di Regolazione dei Trasporti (CC BY 4.0).
 
 ## Prova in locale
 
