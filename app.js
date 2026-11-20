@@ -33,11 +33,13 @@
   };
 
   const settings = Object.assign(
-    { zone: "monselice", fuel: 2, mode: 1, radius: 5, sort: "price", liters: 50 },
+    { zone: "monselice", fuel: 2, mode: 1, radius: 5, sort: "reco", liters: 50, qty: "full", dest: "back", timeValue: 0 },
     D,
     store.get("settings", {}),
     { brand: "", fresh: false, favOnly: false }
   );
+  // Una volta sola: chi aveva "Prezzo" come ordinamento passa al nuovo "Consigliato".
+  if (!store.get("recoIntro", false)) { settings.sort = "reco"; store.set("recoIntro", true); }
   const favs = new Set(store.get("favs", []));
 
   // Luoghi preferiti (come le città nelle app del meteo), salvati sul dispositivo.
@@ -65,9 +67,10 @@
   };
   if (settings.zone !== "gps" && !places.some((p) => p.id === settings.zone)) settings.zone = "gps";
   const saveSettings = () => {
-    const { zone, fuel, mode, radius, sort, liters } = settings;
-    store.set("settings", { zone, fuel, mode, radius, sort, liters });
+    const { zone, fuel, mode, radius, sort, liters, qty, dest, timeValue } = settings;
+    store.set("settings", { zone, fuel, mode, radius, sort, liters, qty, dest, timeValue });
   };
+
 
   // ---------- Formattazione ----------
   const nf3 = new Intl.NumberFormat("it-IT", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
@@ -231,9 +234,9 @@
       } catch (_) { return ""; }
     },
     // Percorso stradale: OSRM (server dimostrativo pubblico, gratuito, senza chiave).
-    async route(a, b) {
-      if (DEMO) return window.CarburantiDemo.route(a, b);
-      const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false&steps=true&alternatives=false`;
+    async route(...pts) {
+      if (DEMO) return window.CarburantiDemo.route(...pts);
+      const url = `https://router.project-osrm.org/route/v1/driving/${pts.map((p) => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}`).join(";")}?overview=false&steps=true&alternatives=false`;
       const j = await getJSON(url, 20000);
       if (!j || j.code !== "Ok" || !j.routes || !j.routes.length) throw new Error("Percorso non trovato");
       const r = j.routes[0];
@@ -249,6 +252,16 @@
       }
       const mwKm = Object.values(byRef).reduce((a, b) => a + b, 0);
       return { km: r.distance / 1000, min: r.duration / 60, mwKm, byRef, roads: Object.keys(byRef) };
+    },
+    // Distanze e tempi su strada: dall'origine a ogni distributore e da ogni distributore alla destinazione.
+    async table(a, list, c) {
+      if (DEMO) return window.CarburantiDemo.table(a, list, c);
+      const pts = [a, ...list, c];
+      const n = list.length;
+      const q = `sources=${[0, ...list.map((_, i) => i + 1)].join(";")}&destinations=${[...list.map((_, i) => i + 1), n + 1].join(";")}&annotations=distance,duration`;
+      const j = await getJSON(`https://router.project-osrm.org/table/v1/driving/${pts.map((p) => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}`).join(";")}?${q}`, 20000);
+      if (!j || j.code !== "Ok") throw new Error("Distanze non disponibili");
+      return { dist: j.distances, dur: j.durations };
     },
     // Database auto (EEA, generato da scripts/build_cars.py): indice marche e un file per marca.
     async carIndex() {
@@ -341,16 +354,107 @@
     return (ref.f.price - x.f.price) * car.tank - (extraKm * car.cons / 100) * x.f.price;
   }
 
+  // ---------- Consigliato per te ----------
+  // Costo reale di un rifornimento: carburante messo + carburante per la deviazione + pedaggi + (facoltativo) tempo.
+  // Deviazione = strada in più rispetto al tragitto che faresti comunque: A → distributore → C, meno A → C.
+  // "Torno qui": C = A, cioè andata e ritorno.
+  const DEFAULT_CONS = 6.5;  // L/100 km senza un'auto nel garage
+  const reco = { key: "", road: {}, tolls: {}, busy: false, ok: false };
+  const QTY = [["full", "Pieno"], ["0.75", "¾"], ["0.5", "½"], ["0.25", "¼"], ["eur:20", "20 €"], ["eur:30", "30 €"], ["eur:50", "50 €"]];
+
+  function recoParams() {
+    const A = currentCenter();
+    const rows = priced();
+    if (!A || !rows.length) return null;
+    const dest = settings.dest !== "back" ? places.find((p) => p.id === settings.dest) : null;
+    const C = dest ? { lat: dest.lat, lng: dest.lng } : { lat: A.lat, lng: A.lng };
+    const car = carForFuel();
+    const cons = car ? car.cons : DEFAULT_CONS;
+    const tank = car ? car.tank : settings.liters;
+    const avg = rows.reduce((a, x) => a + x.f.price, 0) / rows.length;
+    const q = String(settings.qty || "full");
+    let liters, label;
+    if (q.startsWith("eur:")) {
+      const eur = +q.slice(4);
+      liters = eur / avg; label = `${eur} €`;            // a parità di euro: confronto sui litri equivalenti
+    } else {
+      const frac = q === "full" ? 1 : +q || 1;
+      liters = tank * frac;
+      label = frac === 1 ? `Pieno ${nf1.format(liters).replace(",0", "")} ${+settings.fuel === 3 ? "kg" : "L"}` : `${(QTY.find((x) => x[0] === q) || [0, ""])[1]} serbatoio`;
+    }
+    return { A: { lat: A.lat, lng: A.lng }, C, back: !dest, destName: dest ? dest.name : "", cons, liters, label, car, avg, timeValue: +settings.timeValue || 0 };
+  }
+
+  function extraFor(s, P) {
+    const r = reco.road[s.id];
+    if (r) return { km: r.km, min: r.min, toll: reco.tolls[s.id] || 0, exact: true };
+    const st = { lat: s.lat, lng: s.lng };
+    const km = Math.max(0, haversine(P.A, st) + haversine(st, P.C) - haversine(P.A, P.C)) * ROAD_FACTOR;
+    return { km, min: km / 40 * 60, toll: 0, exact: false };
+  }
+  function costOf(x, P) {
+    const e = extraFor(x.s, P);
+    const fill = x.f.price * P.liters;
+    const road = e.km * P.cons / 100 * x.f.price;
+    const time = e.min / 60 * P.timeValue;
+    return { total: fill + road + e.toll + time, fill, road, toll: e.toll, time, km: e.km, min: e.min, exact: e.exact };
+  }
+  function recoRanking() {
+    const P = recoParams();
+    if (!P) return null;
+    const list = priced().map((x) => ({ ...x, c: costOf(x, P) })).sort((a, b) => a.c.total - b.c.total);
+    return { P, list, best: list[0] };
+  }
+
+  // Distanze vere su strada (OSRM) per i distributori più promettenti, poi pedaggi per i primi tre.
+  async function refineReco() {
+    const P = recoParams();
+    if (!P) return;
+    const rows = priced();
+    const key = [P.A.lat.toFixed(4), P.A.lng.toFixed(4), P.C.lat.toFixed(4), P.C.lng.toFixed(4), settings.fuel, settings.mode, rows.length].join("|");
+    if (reco.key === key) return;
+    reco.key = key; reco.road = {}; reco.tolls = {}; reco.ok = false;
+    const prelim = rows.map((x) => ({ x, c: costOf(x, P) })).sort((a, b) => a.c.total - b.c.total);
+    const near = rows.slice().sort((a, b) => (a.s.distance ?? 99) - (b.s.distance ?? 99)).slice(0, 3);
+    const cand = [...new Set(prelim.slice(0, 12).map((y) => y.x).concat(near))].slice(0, 15);
+    try {
+      const t = await api.table(P.A, cand.map((x) => ({ lat: x.s.lat, lng: x.s.lng })), P.C);
+      if (reco.key !== key) return;
+      const n = cand.length;
+      const base = P.back ? 0 : t.dist[0][n], baseT = P.back ? 0 : t.dur[0][n];
+      cand.forEach((x, i) => {
+        const d = t.dist[0][i] + t.dist[i + 1][n] - base;
+        const m = t.dur[0][i] + t.dur[i + 1][n] - baseT;
+        if (isFinite(d) && isFinite(m)) reco.road[x.s.id] = { km: Math.max(0, d) / 1000, min: Math.max(0, m) / 60 };
+      });
+      reco.ok = true;
+      render();
+      // Pedaggi della deviazione (es. un tratto di autostrada) per i primi tre.
+      const top = cand.map((x) => ({ x, c: costOf(x, P) })).sort((a, b) => a.c.total - b.c.total).slice(0, 3);
+      const tollsData = await api.tolls();
+      const tollOf = (r) => Object.entries(r.byRef || {}).reduce((a, [ref, km]) => a + km * ((tollsData && tollsData.refs[ref] && tollsData.refs[ref].rate) || DEFAULT_TOLL_RATE), 0);
+      const direct = P.back ? 0 : tollOf(await api.route(P.A, P.C));
+      for (const { x } of top) {
+        if (reco.key !== key) return;
+        const r = await api.route(P.A, { lat: x.s.lat, lng: x.s.lng }, P.C);
+        const extra = tollOf(r) - direct;
+        if (extra > 0.05) reco.tolls[x.s.id] = Math.round(extra * 10) / 10;
+      }
+      if (reco.key === key) render();
+    } catch (_) { /* senza OSRM resto sulla stima in linea d'aria */ }
+  }
+
   function visible() {
     let rows = priced();
     if (settings.brand) rows = rows.filter((x) => (x.s.brand || "") === settings.brand);
     if (settings.fresh) rows = rows.filter((x) => ago(x.s.insertDate).hours <= 24);
     if (settings.favOnly) rows = rows.filter((x) => favs.has(String(x.s.id)));
     const byPrice = (a, b) => a.f.price - b.f.price || (a.s.distance ?? 99) - (b.s.distance ?? 99);
-    const car = carForFuel(), ref = car && nearestRef(priced());
+    const rk = recoRanking();
+    const costById = rk ? new Map(rk.list.map((x) => [x.s.id, x.c.total])) : null;
     const sorters = {
       price: byPrice,
-      net: car && ref ? (a, b) => netSaving(b, ref, car) - netSaving(a, ref, car) || byPrice(a, b) : byPrice,
+      reco: costById ? (a, b) => costById.get(a.s.id) - costById.get(b.s.id) || byPrice(a, b) : byPrice,
       distance: (a, b) => (a.s.distance ?? 99) - (b.s.distance ?? 99) || a.f.price - b.f.price,
       date: (a, b) => (Date.parse(b.s.insertDate) || 0) - (Date.parse(a.s.insertDate) || 0) || byPrice(a, b),
     };
@@ -429,10 +533,10 @@
         b.setAttribute("aria-checked", String(String(b.dataset.v) === String(segs[sel])));
       });
     }
-    const sortOpts = [["price", "Prezzo"], ["distance", "Distanza"], ["date", "Aggiornamento"]];
-    if (carForFuel()) sortOpts.push(["net", "Convenienza"]);
+    const sortOpts = [["reco", "Consigliato"], ["price", "Prezzo"], ["distance", "Distanza"], ["date", "Aggiornamento"]];
     $("#sel-sort").innerHTML = sortOpts.map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
-    $("#sel-sort").value = sortOpts.some((o) => o[0] === settings.sort) ? settings.sort : "price";
+    $("#sel-sort").value = sortOpts.some((o) => o[0] === settings.sort) ? settings.sort : "reco";
+    renderPills();
     $("#tg-fresh").setAttribute("aria-pressed", String(settings.fresh));
     $("#tg-fav").setAttribute("aria-pressed", String(settings.favOnly));
 
@@ -445,6 +549,38 @@
       brands.map((b) => `<option value="${esc(b)}">${esc(prettyBrand(b))} (${counts[b] || 0})</option>`).join("");
     $("#sel-brand").value = settings.brand;
   }
+
+  const ICON_CAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14M4 13l2-6h12l2 6v4H4z"/></svg>';
+  const ICON_PUMP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15M3 20h14M8 7h4M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>';
+  function renderPills() {
+    const car = carForFuel();
+    const mode = +settings.mode === 1 ? "self" : "servito";
+    $("#pill-car").innerHTML = `${car ? ICON_CAR : ICON_PUMP}<span>${car ? esc(car.name) + " · " : ""}${esc(FUELS[settings.fuel])}${mode === "servito" ? " servito" : ""}</span><i aria-hidden="true">▾</i>`;
+    const dest = settings.dest !== "back" && places.find((p) => p.id === settings.dest);
+    if (settings.dest !== "back" && !dest) settings.dest = "back";
+    $("#pill-route").innerHTML = `<span>${dest ? "→ " + esc(dest.name.replace(/\s*\([A-Z]{2}\)$/, "")) : "↩ Torno qui"}</span><i aria-hidden="true">▾</i>`;
+    $("#pill-radius").innerHTML = `<span>${settings.radius} km</span><i aria-hidden="true">▾</i>`;
+    const nf = (settings.brand ? 1 : 0) + (settings.fresh ? 1 : 0) + (settings.favOnly ? 1 : 0) + (settings.sort !== "reco" ? 1 : 0) + (+settings.timeValue > 0 ? 1 : 0);
+    $("#pill-filters").innerHTML = `<span>Filtri</span>${nf ? `<b class="cnt">${nf}</b>` : ""}`;
+    // Pannello auto: le auto del garage impostano da sole il carburante.
+    $("#car-chips").innerHTML = cars.map((c) => `<button class="opt" data-pick-car="${esc(c.id)}" aria-pressed="${c.id === activeCarId}">${esc(c.name)} <small>${esc(FUELS[c.fuel])}</small></button>`).join("") +
+      `<button class="opt" data-pick-car="" aria-pressed="${!activeCar()}">Nessuna</button><button class="opt dashed" data-new-car>+ Nuova auto</button>`;
+    const q = String(settings.qty || "full");
+    $("#qty-chips").innerHTML = QTY.map(([v, t]) => `<button class="opt" data-qty="${v}" aria-pressed="${q === v}">${t}</button>`).join("");
+    $("#route-chips").innerHTML = `<button class="opt" data-dest="back" aria-pressed="${settings.dest === "back"}">Torno qui</button>` +
+      places.map((p) => `<button class="opt" data-dest="${esc(p.id)}" aria-pressed="${settings.dest === p.id}">Poi vado a ${esc(p.name)}</button>`).join("") +
+      `<button class="opt dashed" data-places>+ Luogo</button>`;
+    const tv = $("#in-timevalue");
+    if (tv && document.activeElement !== tv) tv.value = settings.timeValue || 0;
+  }
+  function togglePanel(name) {
+    for (const k of ["car", "route", "radius", "filters"]) {
+      const open = k === name && $("#panel-" + k).hidden;
+      $("#panel-" + k).hidden = !open;
+      $("#pill-" + k).setAttribute("aria-expanded", String(open));
+    }
+  }
+  const closePanels = () => togglePanel(null);
 
   function renderNotice() {
     const n = $("#notice");
@@ -518,40 +654,50 @@
         <span><strong>Media ${esc(nearHistoryZone())} ${label}</strong>${advice ? `<br><span class="muted">${advice}</span>` : ""}</span></div>`;
     }
     const center = currentCenter();
-    const qn = nf1.format(qty).replace(",0", "");
+    const rk = recoRanking();
+    const P = rk.P, R = rk.best;
+    const cheapest = rk.list.find((x) => x.f.price === min);
+    const nearest = rk.list.reduce((a, x) => (!a || (x.s.distance ?? 99) < (a.s.distance ?? 99) ? x : a), null);
+    const lit = nf1.format(P.liters).replace(",0", "") + " " + qu;
+    const extraTxt = (c) => `${c.exact ? "" : "~"}${nf1.format(c.km)} km${c.min >= 1 ? `<small>+${Math.round(c.min)} min</small>` : ""}`;
+    const cmp = (x, label) => {
+      const d = x.c.total - R.c.total;
+      return `<li><span>${label} <strong>${price(x.f.price)}</strong> · ${x.s.distance != null ? km(x.s.distance) : ""}</span><b>${d < 0.005 ? "uguale" : "+" + nf2.format(d) + " €"}</b></li>`;
+    };
+    const others = [];
+    if (cheapest && cheapest.s.id !== R.s.id) others.push(cmp(cheapest, "Il più economico"));
+    if (nearest && nearest.s.id !== R.s.id && nearest !== cheapest) others.push(cmp(nearest, "Il più vicino"));
+    const avgCost = P.avg * P.liters + R.c.road;
     el.innerHTML = `<div class="card sum hero">
-      <div class="sum-head"><span class="pill-dark">Il più economico</span><span class="sum-fuel">${esc(FUELS[settings.fuel])} ${+settings.mode === 1 ? "self" : "servito"}</span></div>
-      <button class="sum-best" data-open="${esc(best.s.id)}" aria-label="Dettagli ${esc(prettyBrand(best.s.brand))}">
-        <span class="big">${price(min)}</span><span class="u">${u}</span>
+      <div class="sum-head"><span class="pill-dark">Consigliato per te</span><span class="sum-fuel">${esc(FUELS[settings.fuel])} ${+settings.mode === 1 ? "self" : "servito"}</span></div>
+      <button class="sum-best" data-open="${esc(R.s.id)}" aria-label="Dettagli ${esc(prettyBrand(R.s.brand))}">
+        <span class="big">${price(R.f.price)}</span><span class="u">${u}</span>
       </button>
       <div class="sum-row">
-        <span class="sum-where">${logoHTML(best.s.brand)}<span>${esc(prettyBrand(best.s.brand))}${best.s.distance != null ? " · " + km(best.s.distance) : ""}</span></span>
-        <a class="round-go" href="${mapsUrl(best.s)}" target="_blank" rel="noopener" aria-label="Portami lì">
+        <span class="sum-where">${logoHTML(R.s.brand)}<span>${esc(prettyBrand(R.s.brand))}${R.s.distance != null ? " · " + km(R.s.distance) : ""}</span></span>
+        <a class="round-go" href="${mapsUrl(R.s)}" target="_blank" rel="noopener" aria-label="Portami lì">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>
       </div>
       <dl class="minis">
-        <div><dt>Media zona</dt><dd>${price(mean)}</dd></div>
-        ${car ? `<div><dt>Pieno ${qn} ${qu}</dt><dd>${nf2.format(min * qty)} €</dd></div>` : ""}
-        <div><dt>Risparmio ${qn} ${qu}</dt><dd>${nf2.format(saving)} €</dd></div>
+        <div><dt>${esc(P.label)}</dt><dd>${nf2.format(R.c.total)} €</dd></div>
+        <div><dt>Deviazione</dt><dd>${extraTxt(R.c)}</dd></div>
+        <div><dt>Vs media</dt><dd>${nf2.format(Math.max(0, avgCost - R.c.total))} €</dd></div>
       </dl>
-      ${car ? `<div class="car-line"><strong>${esc(car.name)}</strong> · ${nf2.format(car.cons * min)} €/100 km · «netti» = rispetto al più vicino, tolta la strada</div>` : ""}
+      <p class="reco-why">${esc(P.label.startsWith("Pieno") ? "Pieno" : P.label)}: ${nf2.format(R.c.fill)} € di carburante + ${nf2.format(R.c.road)} € di strada${R.c.toll ? ` + ${nf2.format(R.c.toll)} € di pedaggio` : ""}${R.c.time ? ` + ${nf2.format(R.c.time)} € di tempo` : ""}. ${P.back ? "Andata e ritorno da qui" : "Lungo la strada verso " + esc(P.destName)}${P.car ? ", " + esc(P.car.name) + " a " + nf1.format(100 / P.car.cons) + " km/" + qu : ", consumo medio"}.</p>
+      ${others.length ? `<ul class="cmp">${others.join("")}</ul>` : ""}
       ${trend}
-      <div class="sum-foot">${esc(center ? center.name : "")} · ${settings.radius} km · ${rows.length} impianti${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
+      <div class="sum-foot">${esc(center ? center.name : "")} · ${settings.radius} km · ${rows.length} impianti${reco.ok ? "" : " · distanze stimate"}${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
     </div>`;
   }
 
   const RANK_COLORS = ["var(--c-yellow)", "var(--c-orange)", "var(--c-pink)", "var(--c-blue)", "var(--c-lilac)"];
-  function cardHTML({ s, f }, min, ref, car, idx = 0) {
+  function cardHTML({ s, f }, min, rk, idx = 0) {
     const a = ago(s.insertDate);
     let net = "";
-    if (car && ref) {
-      if (ref.s.id === s.id) net = `<span class="net">il più vicino</span>`;
-      else {
-        const v = netSaving({ s, f }, ref, car);
-        if (v >= 0.05) net = `<span class="net pos">risparmi ${nf2.format(v)} € netti</span>`;
-        else if (v <= -0.05) net = `<span class="net neg">non conviene: +${nf2.format(-v)} €</span>`;
-        else net = `<span class="net">come il più vicino</span>`;
-      }
+    if (rk) {
+      const me = rk.list.find((x) => x.s.id === s.id);
+      const d = me ? me.c.total - rk.best.c.total : 0;
+      net = me && me.s.id === rk.best.s.id ? `<span class="net pos">consigliato</span>` : d >= 0.01 ? `<span class="net">+${nf2.format(d)} € in totale</span>` : "";
     }
     const stale = a.hours > 72;
     const diff = f.price - min;
@@ -560,8 +706,8 @@
     const sub = prettyAddress(s.address) || (isUsefulName(s.name) ? s.name : "Indirizzo non disponibile");
     const otherName = s.address && isUsefulName(s.name) && !/^[A-Z0-9 ,.'-]+$/.test(s.name) ? s.name : "";
     const rank = idx + 1;
-    return `<article class="card st${diff === 0 ? " best" : ""}" data-open="${esc(s.id)}" tabindex="0" aria-label="${esc(rank + ". " + title + ", " + price(f.price) + " " + unit(settings.fuel))}">
-      <div class="rank" style="--rk:${diff === 0 ? "var(--accent)" : RANK_COLORS[idx % RANK_COLORS.length]}" aria-hidden="true">${rank}</div>
+    return `<article class="card st${rk && rk.best.s.id === s.id ? " best" : ""}" data-open="${esc(s.id)}" tabindex="0" aria-label="${esc(rank + ". " + title + ", " + price(f.price) + " " + unit(settings.fuel))}">
+      <div class="rank" style="--rk:${(rk && rk.best.s.id === s.id) || (!rk && diff === 0) ? "var(--accent)" : RANK_COLORS[idx % RANK_COLORS.length]}" aria-hidden="true">${rank}</div>
       <div class="st-info">
         <h3>${logoHTML(s.brand)}<span class="tt">${esc(title)}${otherName ? ` <span class="muted">· ${esc(otherName)}</span>` : ""}</span></h3>
         <p class="addr">${esc(sub)}</p>
@@ -612,13 +758,14 @@
       return;
     }
     const min = Math.min(...all.map((x) => x.f.price));
-    const car = carForFuel(), ref = car ? nearestRef(all) : null;
-    let html = rows.map((r, i) => cardHTML(r, min, ref, car, i)).join("");
+    const rk = recoRanking();
+    let html = rows.map((r, i) => cardHTML(r, min, rk, i)).join("");
     if (state.error && !state.fromCache) html = `<div class="card state err small"><p>${esc(state.error)}</p><button class="btn" data-retry>Riprova</button></div>` + html;
     el.innerHTML = html;
   }
 
   function render() {
+    queueMicrotask(refineReco);
     $("#demo-badge").hidden = !DEMO;
     renderControls();
     renderNotice();
@@ -886,11 +1033,22 @@
       ${act ? `<button class="linkish center" data-car-use="">Non usare un'auto predefinita</button>` : ""}`);
   }
 
+  const payData = () => store.get("pay", {}) || {};
   function renderAltro() {
     showView("altro", `
       <section class="group">
         <label class="field"><span>Litri del pieno (senza auto)</span>
           <input id="in-liters" type="number" inputmode="numeric" min="5" max="200" step="1" value="${settings.liters}"></label>
+      </section>
+      <section class="group">
+        <h3>Per ricevere i soldi delle spese</h3>
+        <form id="pay-form" class="form" autocomplete="on">
+          <label class="field"><span>Il tuo nome</span><input name="name" autocomplete="given-name" maxlength="30" value="${esc(payData().name || "")}" placeholder="Es. Gabriele"></label>
+          <label class="field"><span>PayPal.me (nome utente)</span><input name="paypal" maxlength="60" value="${esc(payData().paypal || "")}" placeholder="es. gabrielerossi" autocapitalize="off" spellcheck="false"></label>
+          <label class="field"><span>IBAN</span><input name="iban" maxlength="40" value="${esc(payData().iban || "")}" placeholder="IT00 X000 0000 0000 0000 0000 000" autocapitalize="characters" spellcheck="false"></label>
+          <button class="btn primary" type="submit">Salva</button>
+          <p class="muted small">Restano su questo telefono. Finiscono solo nei viaggi che crei tu e nei link che decidi di condividere.</p>
+        </form>
       </section>
       <section class="group">
         <h3>Dati</h3>
@@ -1137,6 +1295,7 @@
     price: "", priceEdited: false, priceInfo: null,
     suggest: { from: [], to: [] }, groupId: null,
   };
+  const LOAD_PER_PERSON = 0.02;
   const CAN_CONTACTS = "contacts" in navigator && "ContactsManager" in window;
 
   function tripCar() {
@@ -1207,7 +1366,10 @@
     const r = trip.res;
     if (!r) return "";
     const car = tripCar();
-    const cons = car ? car.cons : tripPrefs.cons;
+    const people0 = tripPrefs.people.length;
+    // Più persone a bordo, più peso: circa +2% di consumo per ogni passeggero (stima prudente).
+    const load = LOAD_PER_PERSON * Math.max(0, people0 - 1);
+    const cons = (car ? car.cons : tripPrefs.cons) * (1 + load);
     const mult = tripPrefs.roundTrip ? 2 : 1;
     const priceL = num(trip.price) || (trip.priceInfo && trip.priceInfo.avg) || FALLBACK_PRICE[tripFuel()];
     const kmTot = r.km * mult, minTot = r.min * mult;
@@ -1243,7 +1405,7 @@
         <div><dt>Carburante</dt><dd>${nf2.format(fuelCost)}€</dd></div>
         <div><dt>Pedaggi${real >= 0 ? "" : "*"}</dt><dd>${nf2.format(toll)}€</dd></div>
       </dl>
-      <p class="res-note">${h ? h + " h " : ""}${m} min di guida · ${nf1.format(liters)} ${u} di ${esc(FUELS[tripFuel()]).toLowerCase()}</p>
+      <p class="res-note">${h ? h + " h " : ""}${m} min di guida · ${nf1.format(liters)} ${u} di ${esc(FUELS[tripFuel()]).toLowerCase()}${load ? ` · consumo +${Math.round(load * 100)}% per ${people0} a bordo` : ""}</p>
     </div>
     <div class="card pad trip-more">
       ${legs.length ? `<ul class="tolls">${legs.map((l) => `<li><span>${esc(l.ref)}</span><span>${nf1.format(l.km)} km</span><span>${nf2.format(l.eur)} €</span></li>`).join("")}</ul>
@@ -1301,9 +1463,9 @@
           <label class="car-box"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 17h14M4 13l2-6h12l2 6v4H4z"/></svg></span>
             <span class="car-txt"><span class="sr-only">Auto</span><select name="car" data-trip-car aria-label="Auto">
               ${cars.map((c) => `<option value="${esc(c.id)}"${car && car.id === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
-              <option value=""${car ? "" : " selected"}>Nessuna auto</option>
+              <option value=""${car ? "" : " selected"}>Altra auto (consumo a mano)</option>
               <option value="__new">+ Nuova auto…</option></select>
-            <span class="car-sub">${car ? `${nf1.format(100 / car.cons)} km/${u} · ${esc(FUELS[car.fuel])}` : "Consumo a mano"}</span></span></label>
+            <span class="car-sub">${car ? `${nf1.format(100 / car.cons)} km/${u} · ${esc(FUELS[car.fuel])}` : "Anche l'auto di un amico"}</span></span></label>
           <div class="stepper" role="group" aria-label="Persone">
             <button type="button" data-pp-step="-1" aria-label="Una persona in meno">−</button>
             <span class="sv"><output>${ps.length}</output><small>${ps.length === 1 ? "persona" : "persone"}</small></span>
@@ -1387,10 +1549,12 @@
   function tripCreateGroup() {
     const l = trip.last;
     if (!l) return;
-    const people = tripPrefs.people.map((n) => ({ id: uid("p"), name: n }));
+    const pay = store.get("pay", {}) || {};
+    const people = tripPrefs.people.map((n, i) => ({ id: uid("p"), name: i === 0 && n === "Io" && pay.name ? pay.name : n }));
     const all = people.map((p) => p.id);
     const now = new Date().toISOString();
-    const g = { id: uid("g"), name: ((l.from ? l.from + " → " : "") + l.to + (l.round ? " (A/R)" : "")).slice(0, 40), people, expenses: [] };
+    const g = { id: uid("g"), name: ((l.from ? l.from + " → " : "") + l.to + (l.round ? " (A/R)" : "")).slice(0, 40), people, expenses: [], me: people[0].id };
+    if (pay.paypal || pay.iban) g.pay = { to: people[0].id, paypal: pay.paypal || "", iban: pay.iban || "", holder: pay.name || "" };
     if (l.fuel > 0) g.expenses.push({ id: uid("e"), desc: "Carburante", amount: Math.round(l.fuel * 100) / 100, payer: people[0].id, split: all, date: now });
     if (l.toll > 0) g.expenses.push({ id: uid("e"), desc: "Pedaggi", amount: Math.round(l.toll * 100) / 100, payer: people[0].id, split: all, date: now });
     groups.unshift(g); saveGroups();
@@ -1592,8 +1756,10 @@
     const total = Math.round(e.amount * 100), n = e.split.length, out = {};
     if (!n) return out;
     const base = Math.floor(total / n);
-    let rem = total - base * n;
-    for (const id of e.split) { out[id] = base + (rem > 0 ? 1 : 0); rem--; }
+    const rem = total - base * n;
+    // I centesimi avanzati ruotano tra le persone (in base alla spesa), così non toccano sempre agli stessi.
+    let h = 0; for (const ch of String(e.id)) h = (h * 31 + ch.charCodeAt(0)) % 9973;
+    e.split.forEach((id, i) => { out[id] = base + (((i - h) % n + n) % n < rem ? 1 : 0); });
     return out;
   }
   function balances(g) {
@@ -1666,12 +1832,14 @@
       </section>
       <section class="group">
         <h3>Per pareggiare</h3>
-        ${plan.length ? `<ul class="bal">${plan.map((x) => `<li><span>${esc(personName(g, x.from))} → ${esc(personName(g, x.to))}</span><strong>${eur(x.cents)}</strong></li>`).join("")}</ul>` : `<p class="muted">Siete pari.</p>`}
+        ${plan.length ? `<ul class="bal settle">${plan.map((x, i) => `<li><span class="who">${esc(personName(g, x.from))} → ${esc(personName(g, x.to))}</span><strong>${eur(x.cents)}</strong>
+          <span class="acts"><button class="btn sm" data-sp-ask="${i}">Chiedi</button><button class="btn sm primary" data-sp-settle="${i}">Saldato</button></span></li>`).join("")}</ul>` : `<p class="muted">Siete pari.</p>`}
+        ${g.pay ? `<p class="muted small pay-info">Pagamenti a ${esc(personName(g, g.pay.to))}: ${g.pay.paypal ? `PayPal ${esc(g.pay.paypal)}` : ""}${g.pay.paypal && g.pay.iban ? " · " : ""}${g.pay.iban ? `IBAN ${esc(g.pay.iban)}` : ""}</p>` : ""}
       </section>
       <section class="group">
         <h3>Spese</h3>
-        ${exp.length ? `<ul class="places">${exp.map((e) => `<li><span class="pl-name exp"><strong>${esc(e.desc)}</strong>
-          <span class="muted small">${esc(personName(g, e.payer))} · ${e.split.length === g.people.length ? "tutti" : e.split.map((id) => esc(personName(g, id))).join(", ")}</span></span>
+        ${exp.length ? `<ul class="places">${exp.map((e) => `<li${e.kind === "pay" ? ' class="paid"' : ""}><span class="pl-name exp"><strong>${esc(e.desc)}</strong>
+          <span class="muted small">${e.kind === "pay" ? "pagamento" : `${esc(personName(g, e.payer))} · ${e.split.length === g.people.length ? "tutti" : e.split.map((id) => esc(personName(g, id))).join(", ")}`}</span></span>
           <strong class="amt">${eur(Math.round(e.amount * 100))}</strong>
           <button class="icon-btn" data-sp-del="${esc(e.id)}" aria-label="Elimina ${esc(e.desc)}">✕</button></li>`).join("")}</ul>` : `<p class="muted">Ancora nessuna spesa.</p>`}
       </section>
@@ -1683,8 +1851,23 @@
       </div>`;
   }
 
+  // Messaggio per chiedere i soldi, con link PayPal già compilato e IBAN se chi riceve è chi ha impostato i dati.
+  function askPayment(g, x) {
+    if (!x) return;
+    const amount = (x.cents / 100).toFixed(2);
+    const p = g.pay && g.pay.to === x.to ? g.pay : null;
+    const lines = [`Ciao ${personName(g, x.from)}! Per «${g.name}» la tua parte è ${eur(x.cents)}.`];
+    if (p && p.paypal) lines.push(`PayPal: https://paypal.me/${encodeURIComponent(p.paypal.replace(/^.*paypal\.me\//i, "").replace(/\/.*$/, ""))}/${amount}EUR`);
+    if (p && p.iban) lines.push(`Bonifico: ${p.iban}${p.holder ? " (" + p.holder + ")" : ""}, causale «${g.name}»`);
+    if (!p) lines.push(`Da dare a ${personName(g, x.to)}.`);
+    const text = lines.join("\n");
+    if (navigator.share) navigator.share({ text }).catch(() => {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => { spese.msg = "Messaggio copiato: incollalo in chat."; renderSpese(); }, () => window.prompt("Copia il messaggio", text));
+    else window.prompt("Copia il messaggio", text);
+  }
+
   function packGroup(g) {
-    const json = JSON.stringify({ v: 1, id: g.id, name: g.name, people: g.people, expenses: g.expenses });
+    const json = JSON.stringify({ v: 1, id: g.id, name: g.name, people: g.people, expenses: g.expenses, pay: g.pay });
     return btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
   function unpackGroup(str) {
@@ -1697,8 +1880,10 @@
     const expenses = d.expenses.slice(0, 500).map((e) => ({
       id: clean(e.id, 24), desc: clean(e.desc, 60), amount: Math.round(+e.amount * 100) / 100, payer: clean(e.payer, 20),
       split: (Array.isArray(e.split) ? e.split : []).map((x) => clean(x, 20)).filter((x) => ids.has(x)), date: clean(e.date, 30),
+      kind: e.kind === "pay" ? "pay" : undefined,
     })).filter((e) => e.id && e.amount > 0 && e.amount < 1e6 && ids.has(e.payer) && e.split.length);
-    return { id: clean(d.id, 24) || uid("g"), name: clean(d.name, 40) || "Viaggio", people, expenses };
+    const pay = d.pay && ids.has(clean(d.pay.to, 20)) ? { to: clean(d.pay.to, 20), paypal: clean(d.pay.paypal, 60), iban: clean(d.pay.iban, 40).replace(/[^A-Za-z0-9 ]/g, ""), holder: clean(d.pay.holder, 40) } : undefined;
+    return { id: clean(d.id, 24) || uid("g"), name: clean(d.name, 40) || "Viaggio", people, expenses, pay };
   }
   function shareGroup(g) {
     const link = location.origin + location.pathname + "#spese/import/" + packGroup(g);
@@ -1718,7 +1903,7 @@
     const i = groups.findIndex((x) => x.id === g.id);
     const ok = window.confirm(i >= 0 ? `Aggiornare «${g.name}» con i dati ricevuti?` : `Aggiungere il viaggio «${g.name}» (${g.people.length} persone, ${g.expenses.length} spese)?`);
     if (!ok) return;
-    if (i >= 0) groups[i] = g; else groups.unshift(g);
+    if (i >= 0) { if (groups[i].me) g.me = groups[i].me; groups[i] = g; } else groups.unshift(g);
     saveGroups();
     spese.open = g.id;
   }
@@ -1742,6 +1927,18 @@
     }
     if (t.closest("[data-sp-remove]")) {
       if (window.confirm(`Eliminare «${g.name}» e tutte le sue spese?`)) { groups = groups.filter((x) => x !== g); saveGroups(); spese.open = null; renderSpese(); }
+      return true;
+    }
+    const ask = t.closest("[data-sp-ask]");
+    if (ask) { askPayment(g, settle(g)[+ask.dataset.spAsk]); return true; }
+    const st = t.closest("[data-sp-settle]");
+    if (st) {
+      const x = settle(g)[+st.dataset.spSettle];
+      if (x && window.confirm(`${personName(g, x.from)} ha dato ${eur(x.cents)} a ${personName(g, x.to)}?`)) {
+        // Come in Splitwise: un pagamento è una "spesa" pagata dal debitore e tutta a carico del creditore.
+        g.expenses.push({ id: uid("e"), kind: "pay", desc: `${personName(g, x.from)} ha pagato ${personName(g, x.to)}`, amount: x.cents / 100, payer: x.from, split: [x.to], date: new Date().toISOString() });
+        saveGroups(); renderSpese();
+      }
       return true;
     }
     const del = t.closest("[data-sp-del]");
@@ -1818,7 +2015,16 @@
 
   document.addEventListener("click", (e) => {
     const t = e.target;
-    if (t.closest("[data-places]")) { placeResults = []; openPlaces(); return; }
+    if (t.closest("[data-places]")) { closePanels(); placeResults = []; openPlaces(); return; }
+    const pnl = t.closest("[data-panel]");
+    if (pnl) { togglePanel(pnl.dataset.panel); return; }
+    const pc = t.closest("[data-pick-car]");
+    if (pc) { closePanels(); useCar(pc.dataset.pickCar); return; }
+    if (t.closest("[data-new-car]")) { closePanels(); go("auto"); setTimeout(() => openCarForm(null), 0); return; }
+    const qb = t.closest("[data-qty]");
+    if (qb) { settings.qty = qb.dataset.qty; saveSettings(); render(); return; }
+    const db = t.closest("[data-dest]");
+    if (db) { settings.dest = db.dataset.dest; saveSettings(); closePanels(); render(); return; }
     if (currentTab === "spese" && speseClick(t)) return;
     if (t.closest("[data-car-new]")) { openCarForm(null); return; }
     if (t.closest("[data-car-cancel]")) { const tg = t.closest("[data-car-cancel]").dataset.carCancel; tg === "viaggio" ? openTrip() : renderAuto(); window.scrollTo(0, 0); return; }
@@ -1882,7 +2088,11 @@
     const seg = t.closest(".seg button");
     if (seg) {
       const id = seg.parentElement.id, v = +seg.dataset.v;
+      if (id !== "seg-mode") closePanels();
       if (id === "seg-fuel") {
+        // Scegliere un carburante diverso da quello dell'auto vuol dire "senza auto".
+        const ac = activeCar();
+        if (ac && +ac.fuel !== v) { activeCarId = ""; saveCars(); }
         settings.fuel = v; settings.brand = "";
         if (v === 3 || v === 4) settings.mode = 0; // GPL e metano sono quasi sempre solo serviti
         saveSettings(); load();
@@ -1923,6 +2133,15 @@
     if (e.target.id === "car-form") { e.preventDefault(); saveCarForm(e.target); }
     if (e.target.id === "trip-form") { e.preventDefault(); tripCalc(e.target); }
     if (e.target.id === "sp-new" || e.target.id === "sp-exp") { e.preventDefault(); speseSubmit(e.target); }
+    if (e.target.id === "pay-form") {
+      e.preventDefault();
+      const f = e.target;
+      const iban = f.iban.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (iban && !/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(iban)) { window.alert("L'IBAN non sembra valido."); return; }
+      store.set("pay", { name: f.name.value.trim().slice(0, 30), paypal: f.paypal.value.trim().replace(/^.*paypal\.me\//i, "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40), iban: iban.replace(/(.{4})/g, "$1 ").trim() });
+      renderAltro();
+      const b = $("#pay-form button[type=submit]"); if (b) { b.textContent = "Salvato ✓"; }
+    }
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.matches("[data-pf-input]")) {
@@ -1940,6 +2159,10 @@
   });
 
   $("#sel-sort").addEventListener("change", (e) => { settings.sort = e.target.value; saveSettings(); render(); });
+  $("#in-timevalue").addEventListener("change", (e) => {
+    const v = Math.max(0, Math.min(100, Math.round(num(e.target.value) || 0)));
+    settings.timeValue = v; e.target.value = v; saveSettings(); render();
+  });
   $("#sel-brand").addEventListener("change", (e) => { settings.brand = e.target.value; render(); });
   $("#tg-fresh").addEventListener("click", () => { settings.fresh = !settings.fresh; render(); });
   $("#tg-fav").addEventListener("click", () => { settings.favOnly = !settings.favOnly; render(); });

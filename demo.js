@@ -209,13 +209,24 @@
       .map(([name, lat, lng]) => ({ name, detail: name.replace(/ \(.*/, "") + ", Veneto, Italia (demo)", lat, lng }));
   }
 
-  async function route(a, b) {
-    await delay(500);
-    const km = haversine(a, b) * 1.3;
+  async function route(...pts) {
+    await delay(300);
+    let km = 0;
+    for (let i = 1; i < pts.length; i++) km += haversine(pts[i - 1], pts[i]) * 1.3;
     const mwKm = km > 25 ? km * 0.7 : 0;
     const byRef = mwKm ? { A13: mwKm * 0.6, A4: mwKm * 0.4 } : {};
     return { km, min: km / 80 * 60, mwKm, byRef, roads: Object.keys(byRef) };
   }
 
-  window.CarburantiDemo = { search, station, history, average, geocode, route };
+  async function table(a, list, c) {
+    await delay(250);
+    const pts = [a, ...list, c];
+    const n = list.length;
+    const row = (from) => [...list, c].map((to) => haversine(from, to) * 1.3 * 1000);
+    const dist = [row(a), ...list.map((x) => row(x))];
+    const dur = dist.map((r) => r.map((m) => m / 1000 / 40 * 3600));
+    return { dist, dur, n, pts };
+  }
+
+  window.CarburantiDemo = { search, station, history, average, geocode, route, table };
 })();

@@ -46,28 +46,52 @@
   <main>
     <section id="view-prezzi" class="view" aria-label="Prezzi">
       <div class="controls">
-        <div class="seg" id="seg-fuel" role="radiogroup" aria-label="Carburante">
-          <button data-v="2">Gasolio</button><button data-v="1">Benzina</button><button data-v="4">GPL</button><button data-v="3">Metano</button>
+        <div class="pills" role="toolbar" aria-label="Filtri">
+          <button class="pill pill-car" id="pill-car" data-panel="car" aria-expanded="false" aria-controls="panel-car"></button>
+          <button class="pill" id="pill-route" data-panel="route" aria-expanded="false" aria-controls="panel-route"></button>
+          <button class="pill" id="pill-radius" data-panel="radius" aria-expanded="false" aria-controls="panel-radius"></button>
+          <button class="pill" id="pill-filters" data-panel="filters" aria-expanded="false" aria-controls="panel-filters">Filtri</button>
         </div>
-        <div class="row">
+        <div class="panel" id="panel-car" hidden>
+          <h4>La tua auto</h4>
+          <div class="opt-chips" id="car-chips"></div>
+          <h4>Carburante</h4>
+          <div class="seg" id="seg-fuel" role="radiogroup" aria-label="Carburante">
+            <button data-v="2">Gasolio</button><button data-v="1">Benzina</button><button data-v="4">GPL</button><button data-v="3">Metano</button>
+          </div>
           <div class="seg seg-sm" id="seg-mode" role="radiogroup" aria-label="Modalità">
             <button data-v="1">Self</button><button data-v="0">Servito</button>
           </div>
-          <div class="seg seg-sm" id="seg-radius" role="radiogroup" aria-label="Raggio in km">
-            <button data-v="3">3</button><button data-v="5">5</button><button data-v="10">10</button><button data-v="15">15</button>
+          <h4>Quanto metti</h4>
+          <div class="opt-chips" id="qty-chips"></div>
+        </div>
+        <div class="panel" id="panel-route" hidden>
+          <h4>Dopo il pieno</h4>
+          <div class="opt-chips" id="route-chips"></div>
+          <p class="muted small">Conto solo la strada in più per passare dal distributore.</p>
+        </div>
+        <div class="panel" id="panel-radius" hidden>
+          <h4>Cerca entro</h4>
+          <div class="seg" id="seg-radius" role="radiogroup" aria-label="Raggio in km">
+            <button data-v="3">3 km</button><button data-v="5">5 km</button><button data-v="10">10 km</button><button data-v="15">15 km</button>
           </div>
         </div>
-        <div class="row row-filters">
-          <label class="select">
-            <span class="sr-only">Ordina per</span>
-            <select id="sel-sort"></select>
-          </label>
-          <label class="select">
-            <span class="sr-only">Marchio</span>
-            <select id="sel-brand"><option value="">Tutti i marchi</option></select>
-          </label>
-          <button id="tg-fresh" class="toggle" aria-pressed="false">≤ 24 h</button>
-          <button id="tg-fav" class="toggle" aria-pressed="false" aria-label="Solo preferiti">★</button>
+        <div class="panel" id="panel-filters" hidden>
+          <div class="row row-filters">
+            <label class="select">
+              <span class="sr-only">Ordina per</span>
+              <select id="sel-sort"></select>
+            </label>
+            <label class="select">
+              <span class="sr-only">Marchio</span>
+              <select id="sel-brand"><option value="">Tutti i marchi</option></select>
+            </label>
+            <button id="tg-fresh" class="toggle" aria-pressed="false">≤ 24 h</button>
+            <button id="tg-fav" class="toggle" aria-pressed="false" aria-label="Solo preferiti">★</button>
+          </div>
+          <label class="field tv"><span>Quanto vale il tuo tempo</span>
+            <span class="inline"><input id="in-timevalue" type="number" inputmode="decimal" min="0" max="100" step="1"><span class="unit">€/ora</span></span>
+            <small class="muted">Con 0 conta solo il carburante. Con, per esempio, 10 €/ora una deviazione di 6 minuti pesa 1 €.</small></label>
         </div>
       </div>
       <div id="notice" class="notice" hidden></div>

@@ -418,3 +418,43 @@ code { background: var(--surface-2); border: 1px solid var(--line); padding: 1px
   .seg button { font-size: 13px; }
   .tabbar a { font-size: 12px; }
 }
+
+/* ---------- Prezzi: pillole compatte e pannelli ---------- */
+.pills { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 4px 4px 2px; }
+.pills::-webkit-scrollbar { display: none; }
+.pill {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px;
+  border-radius: 22px; border: var(--border); background: var(--surface); font-weight: 800; font-size: 14px; white-space: nowrap;
+  transition: transform .08s ease, box-shadow .08s ease;
+}
+.pill svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.pill i { font-style: normal; font-size: 11px; opacity: .8; }
+.pill-car { background: var(--accent); color: var(--on-color); border-color: #111; box-shadow: var(--shadow-sm); }
+.pill[aria-expanded="true"] { background: #111; color: #fff; border-color: #111; box-shadow: none; }
+.pill:active { transform: translate(2px, 2px); }
+.pill .cnt { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--c-yellow); color: #111; font-size: 12px; }
+.panel { border: var(--border); border-radius: var(--r-md); background: var(--surface); padding: 12px 14px 14px; display: grid; gap: 10px; box-shadow: var(--shadow-sm); }
+.panel[hidden] { display: none; }
+.panel h4 { margin: 2px 0 -2px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.panel p { margin: 0; }
+.opt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt { min-height: 40px; padding: 0 14px; border-radius: 20px; border: var(--border); background: var(--surface); font-weight: 800; font-size: 14px; }
+.opt small { font-weight: 600; opacity: .8; }
+.opt[aria-pressed="true"] { background: var(--accent); color: var(--on-color); border-color: #111; box-shadow: var(--shadow-sm); }
+.opt.dashed { border-style: dashed; background: transparent; }
+.tv .inline input { max-width: 120px; }
+
+.reco-why { margin: 2px 0 0; font-size: 13px; font-weight: 600; }
+.cmp { list-style: none; margin: 4px 0 0; padding: 0; border: 2px solid #111; border-radius: 14px; background: #fff; color: #111; overflow: hidden; }
+.cmp li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; font-weight: 600; }
+.cmp li + li { border-top: 2px solid #111; }
+.cmp b { white-space: nowrap; font-weight: 800; }
+.minis dd small { display: block; font-size: 12px; font-weight: 700; letter-spacing: 0; }
+.minis dd { font-size: 18px; }
+
+/* ---------- Spese: pareggio e pagamenti ---------- */
+.bal.settle li { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; }
+.bal.settle .acts { grid-column: 1 / -1; display: flex; gap: 8px; }
+.bal.settle .acts .btn { flex: 1; }
+.pay-info { margin: 8px 0 0; }
+.places li.paid { background: var(--surface-2); border-style: dashed; }

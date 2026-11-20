@@ -8,6 +8,12 @@ Su Safari: **Condividi › Aggiungi alla schermata Home**.
 ## Cosa fa
 
 - Prezzi in tempo reale vicino a te o nei tuoi **luoghi** salvati (tasto **+**).
+- **Consigliato per te:** il distributore che ti costa meno davvero. L'app conta il carburante che metti (pieno, ¾, ½, ¼ o un importo in euro), più il carburante per la deviazione su strada calcolata con OSRM, più gli eventuali pedaggi e, se vuoi, il tempo. La deviazione si misura in due modi:
+  - **Torno qui:** andata e ritorno da dove sei.
+  - **Poi vado a…:** quanto allunghi il tragitto verso un luogo salvato, per esempio Casa.
+
+  Il riepilogo confronta il consigliato con il più economico e con il più vicino.
+- Filtri compatti in una riga di pillole. L'auto scelta dal garage imposta da sola il carburante.
 - Loghi dei marchi (360, dal sito MIMIT; `scripts/build_logos.py`, aggiornati con il workflow annuale «Database auto»).
 - Filtri per carburante, self/servito, raggio, marchio e aggiornamento nelle ultime 24 ore. Preferiti con la stella.
 - Riepilogo: il distributore più economico, la media della zona, il risparmio sul pieno e l'andamento rispetto a ieri.
@@ -21,7 +27,7 @@ Su Safari: **Condividi › Aggiungi alla schermata Home**.
   - quanto spendi ogni 100 km;
   - il **risparmio netto** di ogni distributore rispetto al più vicino, già tolto il carburante per arrivarci.
 - **Viaggio:** stima il costo di un tragitto, cioè carburante più pedaggi. I pedaggi si calcolano per ogni autostrada del percorso, con le tariffe ufficiali di classe A (pianura e montagna) di Autostrade per l'Italia, pesate sulla quota di montagna di ogni concessionaria (dati ART). Il totale è arrotondato ai 10 centesimi come al casello, e l'importo esatto si può inserire a mano.
-- **Spese:** come Splitwise. Crei il viaggio con i partecipanti, aggiungi chi ha pagato cosa e vedi saldi e «chi deve quanto a chi». Si condivide con un link: chi lo apre importa o aggiorna il viaggio. Dal pianificatore, «Dividi la spesa» aggiunge subito carburante e pedaggi.
+- **Spese:** come Splitwise, pensate per i viaggi. Il consumo cresce di circa il 2% per ogni passeggero in più. In Altro salvi i tuoi dati di pagamento (PayPal.me e IBAN). Su ogni riga di pareggio, «Chiedi» manda un messaggio con il link PayPal già compilato e l'IBAN, e «Saldato» registra il pagamento. Crei il viaggio con i partecipanti, aggiungi chi ha pagato cosa e vedi saldi e «chi deve quanto a chi». Si condivide con un link: chi lo apre importa o aggiorna il viaggio. Dal pianificatore, «Dividi la spesa» aggiunge subito carburante e pedaggi.
 - Menu in basso (Prezzi, Viaggio, Spese, Auto, Altro). L'aspetto è da iOS su iPhone e Material su Android, e il tema chiaro/scuro segue il sistema.
 - Scheda dell'impianto con:
   - tutti i prezzi;
