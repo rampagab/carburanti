@@ -2172,17 +2172,86 @@
   });
 
 
-  // Aggiorna quando l'app torna in primo piano dopo più di 10 minuti.
+  // ---------- Aggiornamenti automatici ----------
+  // L'app installata (schermata Home) spesso riprende da dove era rimasta senza ricaricare.
+  // Quando torna in primo piano controllo se è stata pubblicata una nuova versione: se sì, ricarico.
+  const STANDALONE = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  const VERSION_FILES = ["index.html", "app.js", "style.css"];
+  let appVersion = null, swReg = null, reloading = false;
+  async function versionNow() {
+    try {
+      const tags = await Promise.all(VERSION_FILES.map((f) => fetch(f, { method: "HEAD", cache: "no-store" })
+        .then((r) => (r.ok ? r.headers.get("etag") || r.headers.get("last-modified") || "" : ""))));
+      return tags.every(Boolean) ? tags.join("|") : null;
+    } catch (_) { return null; }  // offline: nessun controllo
+  }
+  function hardReload() {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  }
+  async function checkForUpdate() {
+    if (swReg) swReg.update().catch(() => {});
+    const v = await versionNow();
+    if (!v) return;
+    if (appVersion && v !== appVersion) hardReload();
+    else appVersion = v;
+  }
+
+  // Aggiorna i dati quando l'app torna in primo piano dopo più di 10 minuti; la versione la controllo sempre.
   let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) hiddenAt = Date.now();
-    else if (hiddenAt && Date.now() - hiddenAt > 10 * 60e3) { settings.zone === "gps" ? locate() : load(); }
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    checkForUpdate();
+    if (hiddenAt && Date.now() - hiddenAt > 10 * 60e3) { settings.zone === "gps" ? locate() : load(); }
   });
+  window.addEventListener("pageshow", (e) => { if (e.persisted) checkForUpdate(); });
+
+  // ---------- Trascina in giù per aggiornare (solo app installata: nel browser c'è già) ----------
+  if (STANDALONE && "ontouchstart" in window) {
+    const ptr = document.createElement("div");
+    ptr.className = "ptr";
+    ptr.setAttribute("aria-hidden", "true");
+    ptr.innerHTML = '<img src="icons/logo-mark.svg" alt="">';
+    document.body.appendChild(ptr);
+    const THRESHOLD = 72;
+    let startY = 0, pulling = false, dist = 0;
+    const blocked = (el) => el.closest("dialog[open], .engines, .pf-list, input, select, textarea");
+    document.addEventListener("touchstart", (e) => {
+      if (window.scrollY > 0 || e.touches.length !== 1 || blocked(e.target)) return;
+      startY = e.touches[0].clientY; pulling = true; dist = 0;
+    }, { passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!pulling) return;
+      dist = e.touches[0].clientY - startY;
+      if (dist <= 0 || window.scrollY > 0) { ptr.style.transform = ""; ptr.classList.remove("on", "ready"); return; }
+      const d = Math.min(110, dist * 0.55);
+      ptr.classList.add("on");
+      ptr.classList.toggle("ready", dist * 0.55 >= THRESHOLD);
+      ptr.style.transform = `translate(-50%, ${d}px) rotate(${d * 3}deg)`;
+    }, { passive: true });
+    document.addEventListener("touchend", () => {
+      if (!pulling) return;
+      pulling = false;
+      if (dist * 0.55 >= THRESHOLD) {
+        ptr.classList.add("spinning");
+        ptr.style.transform = "translate(-50%, 72px)";
+        setTimeout(hardReload, 250);   // ricarica completa: dati freschi e, se c'è, la nuova versione
+      } else {
+        ptr.classList.remove("on", "ready");
+        ptr.style.transform = "";
+      }
+    });
+  }
 
   // ---------- Avvio ----------
   if ("serviceWorker" in navigator && location.protocol === "https:") {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => { swReg = r; }).catch(() => {});
+    // Un nuovo service worker ha preso il controllo (nuovo rilascio): ricarico una volta.
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController) hardReload(); });
   }
+  if (location.protocol === "https:") versionNow().then((v) => { appVersion = v; });
   loadHistoryMeta();
   getJSON(`${CFG.DATA_URL || "data"}/logos/index.json`, 10000).then((j) => { state.logos = j.logos || {}; render(); }, () => {});
   if (settings.zone === "gps") locate(); else load();

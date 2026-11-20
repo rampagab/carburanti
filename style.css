@@ -458,3 +458,16 @@ code { background: var(--surface-2); border: 1px solid var(--line); padding: 1px
 .bal.settle .acts .btn { flex: 1; }
 .pay-info { margin: 8px 0 0; }
 .places li.paid { background: var(--surface-2); border-style: dashed; }
+
+/* ---------- Trascina per aggiornare (app installata) ---------- */
+@media (display-mode: standalone) { html { overscroll-behavior-y: none; } }
+.ptr {
+  position: fixed; z-index: 20; left: 50%; top: calc(env(safe-area-inset-top) - 52px);
+  width: 46px; height: 46px; border-radius: 50%; background: var(--surface); border: var(--border); box-shadow: var(--shadow-sm);
+  display: grid; place-items: center; transform: translate(-50%, 0); opacity: 0; transition: opacity .15s;
+  pointer-events: none;
+}
+.ptr img { width: 22px; height: auto; }
+.ptr.on { opacity: 1; }
+.ptr.ready { background: var(--accent); }
+.ptr.spinning img { animation: rot .7s linear infinite; }
