@@ -8,6 +8,7 @@ Su Safari: **Condividi › Aggiungi alla schermata Home**.
 ## Cosa fa
 
 - Prezzi in tempo reale vicino a te o nei tuoi **luoghi** salvati (tasto **+**).
+- Loghi dei marchi (360, dal sito MIMIT; `scripts/build_logos.py`, aggiornati con il workflow annuale «Database auto»).
 - Filtri per carburante, self/servito, raggio, marchio e aggiornamento nelle ultime 24 ore. Preferiti con la stella.
 - Riepilogo: il distributore più economico, la media della zona, il risparmio sul pieno e l'andamento rispetto a ieri.
 - **Le tue auto** (Impostazioni):

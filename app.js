@@ -138,6 +138,18 @@
     return 2 * 6371 * Math.asin(Math.sqrt(x));
   }
 
+  // Loghi dei marchi (data/logos, da scripts/build_logos.py); senza logo: iniziali su un colore fisso.
+  const logoKey = (b) => String(b || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  function logoHTML(brand, size) {
+    const file = state.logos && state.logos[logoKey(brand)];
+    const cls = "logo" + (size ? " " + size : "");
+    if (file) return `<img class="${cls}" src="${CFG.DATA_URL || "data"}/logos/${encodeURIComponent(file)}" alt="" loading="lazy" decoding="async">`;
+    const words = prettyBrand(brand).split(/[\s\-/]+/).filter(Boolean);
+    const ini = (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || "?").slice(0, 2)).toUpperCase();
+    let h = 0; for (const c of String(brand)) h = (h * 31 + c.charCodeAt(0)) % 360;
+    return `<span class="${cls} ini" style="--h:${h}" aria-hidden="true">${esc(ini)}</span>`;
+  }
+
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   function mapsUrl(s) {
     const ll = s.lat + "," + s.lng;
@@ -293,6 +305,7 @@
     gps: null,        // ultima posizione GPS
     average: null,
     meta: null,       // data/meta.json: zone raccolte dallo storico
+    logos: null,      // data/logos/index.json: marchio normalizzato → file
     reqId: 0,
   };
 
@@ -512,7 +525,7 @@
           <button class="sum-best" data-open="${esc(best.s.id)}">
             <span class="big">${price(min)}</span><span class="u">${u}</span>
           </button>
-          <div class="sum-where">${esc(prettyBrand(best.s.brand))}${best.s.distance != null ? " · " + km(best.s.distance) : ""}</div>
+          <div class="sum-where">${logoHTML(best.s.brand)}${esc(prettyBrand(best.s.brand))}${best.s.distance != null ? " · " + km(best.s.distance) : ""}</div>
         </div>
         <dl class="sum-stats">
           <div><dt>Media zona</dt><dd>${price(mean)}</dd></div>
@@ -551,7 +564,7 @@
         <span class="delta ${diff === 0 ? "zero" : ""}">${diff === 0 ? "Migliore" : "+" + cents(diff) + " cent"}</span>
       </div>
       <div class="st-info">
-        <h3>${esc(title)}${otherName ? ` <span class="muted">· ${esc(otherName)}</span>` : ""}</h3>
+        <h3>${logoHTML(s.brand)}<span class="tt">${esc(title)}${otherName ? ` <span class="muted">· ${esc(otherName)}</span>` : ""}</span></h3>
         <p class="addr">${esc(sub)}</p>
         <p class="meta">${s.distance != null ? `<span>${km(s.distance)}</span>` : ""}
           <span class="${stale ? "stale" : ""}">${stale ? "⚠ " : ""}aggiornato ${esc(a.text)}</span>
@@ -780,7 +793,7 @@
     const loadingDetail = detail === undefined;
 
     return `<header class="sh-head">
-        <h2 id="sheet-title">${esc(prettyBrand(s.brand))}</h2>
+        <h2 id="sheet-title">${logoHTML(s.brand, "lg")}${esc(prettyBrand(s.brand))}</h2>
         ${isUsefulName(name) ? `<p class="muted">${esc(name)}</p>` : ""}
         <p class="addr">${esc(address || "Indirizzo non disponibile")}</p>
       </header>
@@ -1902,6 +1915,7 @@
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
   loadHistoryMeta();
+  getJSON(`${CFG.DATA_URL || "data"}/logos/index.json`, 10000).then((j) => { state.logos = j.logos || {}; render(); }, () => {});
   if (settings.zone === "gps") locate(); else load();
   render();
   route();

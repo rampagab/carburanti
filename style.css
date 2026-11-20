@@ -432,3 +432,13 @@ html.ios .tabbar .ti { height: 26px; }
 .stepper output { min-width: 32px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
 .form .field small { font-size: 13px; }
 html.android .chip-q, html.android .person { border-radius: 8px; }
+
+/* ---------- Loghi ---------- */
+.logo { flex: none; width: 26px; height: 26px; border-radius: 7px; background: #fff; object-fit: contain; padding: 1px; box-shadow: 0 0 0 1px var(--line); vertical-align: middle; }
+.logo.lg { width: 36px; height: 36px; border-radius: 9px; }
+.logo.ini { display: inline-grid; place-items: center; padding: 0; font-size: 11px; font-weight: 800; letter-spacing: -.02em; color: #fff; background: hsl(var(--h) 45% 42%); box-shadow: none; }
+.logo.lg.ini { font-size: 14px; }
+.st-info h3 { display: flex; align-items: center; gap: 8px; }
+.st-info h3 .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sum-where { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.sh-head h2 { display: flex; align-items: center; gap: 10px; }
