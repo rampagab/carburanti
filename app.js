@@ -795,7 +795,7 @@
     const carRow = (c) => `<li>
         <button class="pl-name car-pick" data-car-use="${esc(c.id)}" aria-pressed="${c.id === activeCarId}">
           <span class="radio" aria-hidden="true"></span><span><strong>${esc(c.name)}</strong>
-          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(c.cons)} ${+c.fuel === 3 ? "kg" : "L"}/100 km (${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"}) · serbatoio ${nf1.format(c.tank).replace(",0", "")}</span></span></button>
+          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"} ${c.realKml || !c.declL100 ? "reali" : "(dichiarato +" + DECLARED_GAP * 100 + "%)"} · serbatoio ${nf1.format(c.tank).replace(",0", "")}</span></span></button>
         <span class="pl-btns"><button class="icon-btn" data-car-edit="${esc(c.id)}" aria-label="Modifica ${esc(c.name)}">✎</button>
         <button class="icon-btn" data-car-del="${esc(c.id)}" aria-label="Elimina ${esc(c.name)}">✕</button></span></li>`;
     openSheet(`<header class="sh-head"><h2 id="sheet-title">Impostazioni</h2></header>
@@ -833,40 +833,78 @@
     });
   }
 
+  // Il consumo dichiarato (WLTP) è spesso ottimistico: senza un dato reale lo aumento di questa quota.
+  const DECLARED_GAP = 0.15;
+
   function openCarForm(car) {
     sheetReq++;
-    const c = car || { name: "", fuel: +settings.fuel || 2, cons: "", tank: "" };
+    const c = car || { name: "", fuel: +settings.fuel || 2, tank: "" };
+    // Auto salvate prima di questa versione: il loro consumo era già quello reale.
+    const real = c.realKml || (c.cons && !c.declL100 ? Math.round(1000 / c.cons) / 10 : "");
+    const u = +c.fuel === 3 ? "kg" : "L";
     openSheet(`<header class="sh-head"><h2 id="sheet-title">${car ? "Modifica auto" : "Nuova auto"}</h2></header>
-      <form id="car-form" class="form" data-id="${esc(car ? car.id : "")}" autocomplete="off">
+      <form id="car-form" class="form" novalidate data-id="${esc(car ? car.id : "")}" autocomplete="off">
         <label class="field"><span>Nome</span><input name="name" required maxlength="40" placeholder="Es. Panda, Golf, auto di lavoro" value="${esc(c.name)}"></label>
         <label class="field"><span>Carburante</span><select name="fuel">${[2, 1, 4, 3].map((f) => `<option value="${f}"${+c.fuel === f ? " selected" : ""}>${FUELS[f]}</option>`).join("")}</select></label>
-        <div class="field"><span>Tipo di auto (riempie i campi sotto con valori tipici)</span>
+
+        <fieldset class="box">
+          <legend>Consumo reale <span class="tag">consigliato</span></legend>
+          <label class="field"><span>Quanti km fai davvero con 1 ${u}</span>
+            <div class="inline"><input name="real" type="number" inputmode="decimal" step="0.1" min="3" max="100" value="${real}" placeholder="Es. 17,5"><span class="unit">km/${u}</span></div></label>
+          <details class="calc"${real ? "" : " open"}>
+            <summary>Calcolalo da un pieno all'altro</summary>
+            <p class="muted small">Fai il pieno e azzera il contachilometri parziale. Al pieno successivo scrivi i km percorsi e i litri messi.</p>
+            <div class="inline"><input name="ckm" type="number" inputmode="decimal" step="1" min="1" placeholder="km percorsi" aria-label="km percorsi">
+              <input name="cl" type="number" inputmode="decimal" step="0.01" min="1" placeholder="litri messi" aria-label="litri messi">
+              <button type="button" class="btn" data-car-calc>Calcola</button></div>
+            <p class="muted small">Puoi anche usare la media del computer di bordo, se la ritieni affidabile.</p>
+          </details>
+        </fieldset>
+
+        <fieldset class="box">
+          <legend>Consumo dichiarato dalla casa <span class="tag">facoltativo</span></legend>
+          <div class="inline"><input name="decl" type="number" inputmode="decimal" step="0.1" min="1" max="100" value="${c.declL100 || ""}" aria-label="Consumo dichiarato">
+            <select name="unit"><option value="l100">L/100 km</option><option value="kml">km/L</option></select></div>
+          <p class="muted small">Usato solo se non inserisci quello reale, aumentato del ${DECLARED_GAP * 100}%: nella guida di tutti i giorni si consuma quasi sempre più del dato ufficiale.</p>
+        </fieldset>
+
+        <div class="field"><span>Non conosci i valori? Parti da uno tipico</span>
           <div class="preset-row"><button type="button" class="btn" data-preset="s">Piccola</button><button type="button" class="btn" data-preset="m">Media</button><button type="button" class="btn" data-preset="l">Grande / SUV</button></div></div>
-        <div class="field"><span>Consumo medio</span>
-          <div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="100" required value="${c.cons ? String(c.cons).replace(",", ".") : ""}">
-          <select name="unit"><option value="l100">L/100 km</option><option value="kml">km/L</option></select></div></div>
-        <label class="field"><span>Capienza serbatoio (L, kg per il metano)</span><input name="tank" type="number" inputmode="decimal" step="1" min="5" max="150" required value="${c.tank || ""}"></label>
-        <p class="muted small">Il consumo reale lo trovi sul computer di bordo, oppure dopo un pieno: km percorsi ÷ litri = km/L.</p>
+        <label class="field"><span>Capienza serbatoio (${u})</span><input name="tank" type="number" inputmode="decimal" step="1" min="5" max="150" required value="${c.tank || ""}"></label>
         <p class="form-err" role="alert" hidden></p>
         <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-settings>Annulla</button></div>
       </form>`);
   }
 
+  const num = (v) => parseFloat(String(v == null ? "" : v).replace(",", "."));
+
   function saveCarForm(form) {
     const fd = new FormData(form);
     const fuel = +fd.get("fuel");
-    let cons = parseFloat(String(fd.get("cons")).replace(",", "."));
-    if (fd.get("unit") === "kml" && cons > 0) cons = 100 / cons;
-    const tank = parseFloat(String(fd.get("tank")).replace(",", "."));
+    const realKml = num(fd.get("real"));
+    let declL100 = num(fd.get("decl"));
+    if (fd.get("unit") === "kml" && declL100 > 0) declL100 = 100 / declL100;
+    const tank = num(fd.get("tank"));
     const name = String(fd.get("name") || "").trim();
     const err = $(".form-err", form);
-    if (!name || !(cons >= 1 && cons <= 30) || !(tank >= 5 && tank <= 150)) {
-      err.hidden = false;
-      err.textContent = !name ? "Scrivi un nome." : !(cons >= 1 && cons <= 30) ? "Il consumo deve essere tra 1 e 30 L/100 km (oppure tra 3,3 e 100 km/L)." : "Il serbatoio deve essere tra 5 e 150.";
-      return;
-    }
+    const hasReal = realKml >= 3 && realKml <= 100;
+    const hasDecl = declL100 >= 1 && declL100 <= 30;
+    let msg = "";
+    if (!name) msg = "Scrivi un nome.";
+    else if (fd.get("real") && !hasReal) msg = "Il consumo reale deve essere tra 3 e 100 km/L.";
+    else if (fd.get("decl") && !hasDecl) msg = "Il consumo dichiarato deve essere tra 1 e 30 L/100 km (tra 3,3 e 100 km/L).";
+    else if (!hasReal && !hasDecl) msg = "Inserisci il consumo reale (oppure quello dichiarato).";
+    else if (!(tank >= 5 && tank <= 150)) msg = "Il serbatoio deve essere tra 5 e 150.";
+    if (msg) { err.hidden = false; err.textContent = msg; return; }
+    const cons = hasReal ? 100 / realKml : declL100 * (1 + DECLARED_GAP);
     const id = form.dataset.id || "c" + Date.now().toString(36);
-    const car = { id, name, fuel, cons: Math.round(cons * 100) / 100, tank: Math.round(tank * 10) / 10 };
+    const car = {
+      id, name, fuel,
+      cons: Math.round(cons * 100) / 100,              // L/100 km usato nei calcoli
+      realKml: hasReal ? Math.round(realKml * 10) / 10 : null,
+      declL100: hasDecl ? Math.round(declL100 * 100) / 100 : null,
+      tank: Math.round(tank * 10) / 10,
+    };
     const i = cars.findIndex((x) => x.id === id);
     if (i >= 0) cars[i] = car; else cars.push(car);
     useCar(id);
@@ -987,7 +1025,7 @@
           <label class="check">Persone <input name="people" type="number" inputmode="numeric" min="1" max="9" value="${tripPrefs.people}"></label>
         </div>
         <div class="field"><span>Auto</span>${car
-          ? `<p class="car-sum"><strong>${esc(car.name)}</strong> · ${esc(FUELS[car.fuel])} · ${nf1.format(car.cons)} ${u}/100 km <button type="button" class="linkish" data-settings>cambia</button></p>`
+          ? `<p class="car-sum"><strong>${esc(car.name)}</strong> · ${esc(FUELS[car.fuel])} · ${nf1.format(100 / car.cons)} km/${u} <button type="button" class="linkish" data-settings>cambia</button></p>`
           : `<div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="30" value="${tripPrefs.cons}" aria-label="Consumo"><span class="unit">${u}/100 km</span></div>
              <p class="muted small">Oppure <button type="button" class="linkish" data-car-new>aggiungi la tua auto</button>.</p>`}</div>
         <label class="field"><span>Prezzo ${esc(FUELS[fuel])} (€/${u})</span>
@@ -1160,7 +1198,14 @@
     if (preset) {
       const form = preset.closest("form");
       const pr = CAR_PRESETS[+form.fuel.value][preset.dataset.preset];
-      form.cons.value = pr[0]; form.unit.value = "l100"; form.tank.value = pr[1];
+      form.real.value = Math.round(1000 / pr[0]) / 10; form.tank.value = pr[1];
+      return;
+    }
+    const calc = t.closest("[data-car-calc]");
+    if (calc) {
+      const form = calc.closest("form");
+      const k = num(form.ckm.value), l = num(form.cl.value);
+      if (k > 0 && l > 0) { form.real.value = Math.round((k / l) * 10) / 10; form.real.focus(); }
       return;
     }
     const pAdd = t.closest("[data-place-add]");
