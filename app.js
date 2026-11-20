@@ -247,6 +247,28 @@
       if (!carCache[file]) carCache[file] = getJSON(`${CFG.DATA_URL || "data"}/cars/${encodeURIComponent(file)}.json`, 15000).catch((e) => { delete carCache[file]; throw e; });
       return carCache[file];
     },
+    // Suggerimenti mentre si scrive: Photon (komoot, dati OpenStreetMap), gratuito e senza chiave.
+    async suggest(q, near, signal) {
+      if (DEMO) return window.CarburantiDemo.geocode(q);
+      const p = new URLSearchParams({ q, limit: "6", lang: "default", bbox: "6.6,35.4,18.6,47.1" });
+      if (near) { p.set("lat", near.lat.toFixed(3)); p.set("lon", near.lng.toFixed(3)); }
+      const res = await fetch("https://photon.komoot.io/api/?" + p, { signal });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const j = await res.json();
+      const seen = new Set();
+      return (j.features || []).map((f) => {
+        const a = f.properties || {};
+        const [lng, lat] = f.geometry.coordinates;
+        const street = a.street ? a.street + (a.housenumber ? " " + a.housenumber : "") : "";
+        const town = a.city || a.town || a.village || a.district || "";
+        let name = a.name || street || town;
+        if (street && a.name && a.name !== street) name = a.name + ", " + street;
+        if (town && name !== town && !name.includes(town)) name += ", " + town;
+        const prov = { Padova: "PD", Venezia: "VE", Verona: "VR", Vicenza: "VI", Treviso: "TV", Rovigo: "RO", Belluno: "BL" }[a.county] || "";
+        const detail = [a.county, a.state].filter(Boolean).join(", ");
+        return { name: prov && !name.includes("(") ? `${name} (${prov})` : name, detail, lat, lng };
+      }).filter((r) => r.name && !seen.has(r.name) && seen.add(r.name));
+    },
     // Tariffe di pedaggio per autostrada (data/tolls.json, da scripts/build_tolls.py).
     async tolls() {
       if (carCache.tolls === undefined) carCache.tolls = getJSON(`${CFG.DATA_URL || "data"}/tolls.json`, 8000).catch(() => null);
@@ -868,15 +890,15 @@
     return v.kw < 60 ? 40 : v.kw < 90 ? 47 : v.kw < 130 ? 55 : 65;
   }
 
-  function openCarForm(car) {
+  function openCarForm(car, target = "auto") {
     sheetReq++;
     const c = car || { name: "", fuel: +settings.fuel || 2, tank: "" };
     // Auto salvate prima di questa versione: il loro consumo era già quello reale.
     const real = c.realKml || (c.cons && !c.declL100 ? Math.round(1000 / c.cons) / 10 : "");
     const u = +c.fuel === 3 ? "kg" : "L";
     window.scrollTo(0, 0);
-    showView("auto", `<button class="back" data-go="auto">‹ Auto</button><h2 class="view-title">${car ? "Modifica auto" : "Nuova auto"}</h2>
-      <form id="car-form" class="form" novalidate data-id="${esc(car ? car.id : "")}" data-nedc="${c.nedc ? 1 : ""}" autocomplete="off">
+    showView(target, `<button class="back" data-car-cancel="${target}">‹ ${target === "viaggio" ? "Viaggio" : "Garage"}</button><h2 class="view-title">${car ? "Modifica auto" : "Nuova auto"}</h2>
+      <form id="car-form" class="form" novalidate data-target="${target}" data-id="${esc(car ? car.id : "")}" data-nedc="${c.nedc ? 1 : ""}" autocomplete="off">
         <fieldset class="box cfg">
           <legend>Trova la tua auto</legend>
           <label class="field"><span>Marca</span><select name="cfgMake" disabled><option value="">Carico le marche…</option></select></label>
@@ -911,7 +933,7 @@
           <div class="preset-row"><button type="button" class="btn" data-preset="s">Piccola</button><button type="button" class="btn" data-preset="m">Media</button><button type="button" class="btn" data-preset="l">Grande / SUV</button></div></div>
         <label class="field"><span>Capienza serbatoio (${u})</span><input name="tank" type="number" inputmode="decimal" step="1" min="5" max="150" required value="${c.tank || ""}"></label>
         <p class="form-err" role="alert" hidden></p>
-        <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-go="auto">Annulla</button></div>
+        <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-car-cancel="${target}">Annulla</button></div>
       </form>`);
     initConfigurator($("#car-form"), c);
   }
@@ -1011,6 +1033,11 @@
     else if (fd.get("decl") && !hasDecl) msg = "Il consumo dichiarato deve essere tra 1 e 30 L/100 km (tra 3,3 e 100 km/L).";
     else if (!hasReal && !hasDecl) msg = "Inserisci il consumo reale (oppure quello dichiarato).";
     else if (!(tank >= 5 && tank <= 150)) msg = "Il serbatoio deve essere tra 5 e 150.";
+    // 3 km/L per un diesel è quasi certamente un consumo scritto in L/100 km.
+    if (!msg && hasReal && fuel !== 3 && realKml < 8 && form.dataset.lowOk !== String(realKml)) {
+      form.dataset.lowOk = String(realKml);
+      msg = `${nf1.format(realKml)} km/L è molto basso: forse hai scritto i litri per 100 km? Sarebbero ${nf1.format(100 / realKml)} km/L. Se è giusto così, premi di nuovo Salva.`;
+    }
     if (msg) { err.hidden = false; err.textContent = msg; return; }
     const nedc = form.dataset.nedc === "1";
     const cons = hasReal ? 100 / realKml : declL100 * (1 + (nedc ? DECLARED_GAP_NEDC : DECLARED_GAP));
@@ -1029,9 +1056,16 @@
     };
     const i = cars.findIndex((x) => x.id === id);
     if (i >= 0) cars[i] = car; else cars.push(car);
+    window.scrollTo(0, 0);
+    if (form.dataset.target === "viaggio") {
+      // Auto creata dal Viaggio: entra nel garage e viene scelta per questo viaggio.
+      if (!activeCarId) { activeCarId = id; saveCars(); }
+      trip.carId = id; trip.priceInfo = null; trip.priceEdited = false; trip.price = "";
+      openTrip();
+      return;
+    }
     useCar(id);
     renderAuto();
-    window.scrollTo(0, 0);
   }
 
   function useCar(id) {
@@ -1052,50 +1086,89 @@
   const FREE_MOTORWAYS = new Set(["A2", "A19", "A29", "A90", "A91"]);
   const DEFAULT_TOLL_RATE = 0.082;
   const FALLBACK_PRICE = { 1: 1.95, 2: 2.0, 3: 1.5, 4: 0.8 };
-  const tripPrefs = Object.assign({ tollRate: 0.08, people: 1, roundTrip: false, cons: 6.5 }, store.get("trip", {}));
-  const trip = { from: "gps", to: null, results: [], msg: "", res: null, tollReal: "", price: "" };
+  const tripPrefs = Object.assign({ roundTrip: false, cons: 6.5, people: ["Io"] }, store.get("trip", {}));
+  if (!Array.isArray(tripPrefs.people) || !tripPrefs.people.length) tripPrefs.people = ["Io"];
+  const saveTripPrefs = () => store.set("trip", tripPrefs);
+  const trip = {
+    from: { gps: true }, to: null, res: null, tollReal: "",
+    carId: null,              // auto scelta per il viaggio (di default quella attiva)
+    price: "", priceEdited: false, priceInfo: null,
+    suggest: { from: [], to: [] }, groupId: null,
+  };
+  const CAN_CONTACTS = "contacts" in navigator && "ContactsManager" in window;
 
-  function tripFuel() { const c = activeCar(); return c ? +c.fuel : +settings.fuel; }
-  function defaultTripPrice() {
-    const fuel = tripFuel();
-    if (+settings.fuel === fuel) {
-      const rows = priced();
-      if (rows.length) return rows.reduce((a, x) => a + x.f.price, 0) / rows.length;
-    }
-    const days = state.average && state.average.days;
-    const last = days && days[days.length - 1];
-    const v = last && last.v && (last.v[fuel + "-1"] || last.v[fuel + "-0"]);
-    return v ? v.avg : FALLBACK_PRICE[fuel];
+  function tripCar() {
+    if (trip.carId === null) trip.carId = activeCarId || "";
+    return cars.find((c) => c.id === trip.carId) || null;
   }
+  function tripFuel() { const c = tripCar(); return c ? +c.fuel : +(trip.fuel || settings.fuel); }
   function getPosition() {
     if (state.gps) return Promise.resolve(state.gps);
     return new Promise((ok, ko) => {
       if (!navigator.geolocation) return ko(new Error("Posizione non disponibile su questo dispositivo"));
       navigator.geolocation.getCurrentPosition(
         (p) => { state.gps = { lat: p.coords.latitude, lng: p.coords.longitude, name: "La tua posizione" }; ok(state.gps); },
-        () => ko(new Error("Posizione non disponibile: scegli una partenza tra i tuoi luoghi")),
+        () => ko(new Error("Posizione non disponibile: scrivi un indirizzo di partenza")),
         { timeout: 12000, maximumAge: 120000 });
     });
   }
+  const fromPoint = async () => (trip.from && trip.from.gps ? getPosition() : trip.from);
+
+  // Prezzo proposto: media attuale dei distributori entro 10 km dalla partenza.
+  const priceCache = {};
+  async function refreshTripPrice() {
+    const fuel = tripFuel();
+    let pt;
+    try { pt = await fromPoint(); } catch (_) { pt = null; }
+    if (!pt) return;
+    const key = `${pt.lat.toFixed(2)},${pt.lng.toFixed(2)},${fuel}`;
+    try {
+      if (!priceCache[key]) priceCache[key] = api.search({ lat: pt.lat, lng: pt.lng, radius: 10, fuel });
+      const stations = await priceCache[key];
+      const want = fuel === 3 || fuel === 4 ? [false, true] : [true, false];
+      let prices = [];
+      for (const self of want) {
+        prices = stations.map((s) => s.fuels.filter((f) => f.fuelId === fuel && f.isSelf === self && f.price > 0).map((f) => f.price))
+          .filter((a) => a.length).map((a) => Math.min(...a));
+        if (prices.length) { trip.priceInfo = { n: prices.length, self }; break; }
+      }
+      if (!prices.length) return;
+      const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+      trip.priceInfo.avg = avg;
+      if (!trip.priceEdited) trip.price = avg.toFixed(3);
+      updatePriceUI(); // solo il campo prezzo: non ridisegno il modulo mentre si scrive
+    } catch (_) { delete priceCache[key]; }
+  }
+
+  function priceHint() {
+    const pi = trip.priceInfo;
+    return pi && pi.avg ? `Media attuale di ${pi.n} distributori vicino alla partenza${pi.self ? "" : " (servito)"}${trip.priceEdited ? ` · <button type="button" class="linkish" data-price-reset>usa ${nf3.format(pi.avg)}</button>` : ""}` : "Calcolo la media attuale…";
+  }
+  function updatePriceUI() {
+    const input = $("[data-trip-price]");
+    if (!input) return;
+    if (!trip.priceEdited) input.value = trip.price;
+    const hint = input.nextElementSibling;
+    if (hint) hint.innerHTML = priceHint();
+  }
+
   function readTripForm() {
     const f = $("#trip-form");
     if (!f) return;
-    trip.from = f.from.value;
     tripPrefs.roundTrip = f.round.checked;
-    tripPrefs.people = Math.min(9, Math.max(1, Math.round(+f.people.value) || 1));
-    if (f.cons) { const c = parseFloat(String(f.cons.value).replace(",", ".")); if (c >= 1 && c <= 30) tripPrefs.cons = c; }
+    if (f.cons) { const c = num(f.cons.value); if (c >= 1 && c <= 30) tripPrefs.cons = c; }
     trip.price = f.price.value;
-    store.set("trip", tripPrefs);
+    saveTripPrefs();
   }
 
   function tripResultHTML() {
     const r = trip.res;
     if (!r) return "";
-    const car = activeCar();
+    const car = tripCar();
     const cons = car ? car.cons : tripPrefs.cons;
     const mult = tripPrefs.roundTrip ? 2 : 1;
-    const priceL = parseFloat(String(trip.price).replace(",", ".")) || defaultTripPrice();
-    const kmTot = r.km * mult, mwTot = r.mwKm * mult, minTot = r.min * mult;
+    const priceL = num(trip.price) || (trip.priceInfo && trip.priceInfo.avg) || FALLBACK_PRICE[tripFuel()];
+    const kmTot = r.km * mult, minTot = r.min * mult;
     const liters = kmTot * cons / 100;
     const fuelCost = liters * priceL;
     const legs = Object.entries(r.byRef || {}).map(([ref, km]) => {
@@ -1108,56 +1181,84 @@
     const real = parseFloat(String(trip.tollReal).replace(",", "."));
     const toll = real >= 0 ? real : tollEst;
     const total = fuelCost + toll;
-    const people = tripPrefs.people;
-    trip.last = { fuel: fuelCost, toll, total, to: trip.to.name, round: tripPrefs.roundTrip };
+    const people = tripPrefs.people.length;
+    trip.last = { fuel: fuelCost, toll, total, to: trip.to.name, from: trip.from.gps ? "" : trip.from.name, round: tripPrefs.roundTrip };
     const u = tripFuel() === 3 ? "kg" : "L";
     const h = Math.floor(minTot / 60), m = Math.round(minTot % 60);
     const from = trip.fromPoint, to = trip.to;
     const maps = isIOS
       ? `https://maps.apple.com/?saddr=${from.lat},${from.lng}&daddr=${to.lat},${to.lng}&dirflg=d`
       : `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=driving`;
+    const g = trip.groupId && groups.find((x) => x.id === trip.groupId);
     return `<div class="card trip-res">
-      <div class="eyebrow">Costo ${tripPrefs.roundTrip ? "andata e ritorno" : "solo andata"} · ${esc(to.name)}</div>
+      <div class="eyebrow">${tripPrefs.roundTrip ? "Andata e ritorno" : "Solo andata"} · ${esc(to.name)}</div>
       <div class="trip-total"><span class="big">${nf2.format(total)}</span><span class="u">€</span></div>
-      ${people > 1 ? `<div class="muted"><strong>${nf2.format(total / people)} € a testa</strong> (${people} persone)</div>` : ""}
+      ${people > 1 ? `<div class="muted"><strong>${nf2.format(total / people)} € a testa</strong> · ${people} persone</div>` : ""}
       <dl class="trip-dl">
         <div><dt>Distanza</dt><dd>${nf1.format(kmTot)} km</dd></div>
         <div><dt>Tempo di guida</dt><dd>${h ? h + " h " : ""}${m} min</dd></div>
         <div><dt>Carburante</dt><dd>${nf1.format(liters)} ${u} · ${nf2.format(fuelCost)} €</dd></div>
         <div><dt>Pedaggi ${real >= 0 ? "(reali)" : "(stima)"}</dt><dd>${nf2.format(toll)} €</dd></div>
       </dl>
-      ${legs.length ? `<ul class="tolls">${legs.map((l) => `<li><span>${esc(l.ref)}</span><span>${nf1.format(l.km)} km</span><span>${nf2.format(l.eur)} €</span></li>`).join("")}</ul>` : `<p class="muted small">Nessuna autostrada a pagamento sul percorso.</p>`}
+      ${legs.length ? `<ul class="tolls">${legs.map((l) => `<li><span>${esc(l.ref)}</span><span>${nf1.format(l.km)} km</span><span>${nf2.format(l.eur)} €</span></li>`).join("")}</ul>` : `<p class="muted small">Nessuna autostrada a pagamento.</p>`}
       <label class="field"><span>Pedaggi reali${tripPrefs.roundTrip ? " (A/R)" : ""}</span>
         <input id="toll-real" type="number" inputmode="decimal" step="0.1" min="0" value="${esc(trip.tollReal)}" placeholder="${nf2.format(tollEst).replace(",", ".")}"></label>
-      <div class="preset-row"><button type="button" class="btn primary" data-trip-split>Dividi la spesa</button><a class="btn" href="${maps}" target="_blank" rel="noopener">Apri in Mappe</a></div>
-      <p class="muted small">Stima con le tariffe ufficiali ${trip.tolls ? "2026 " : ""}pianura/montagna di ogni autostrada (Autostrade per l'Italia, ART). Il casello può differire.</p>
+      <div class="preset-row">
+        ${g ? `<button type="button" class="btn primary" data-sp-goto="${esc(g.id)}">Apri in Spese</button>`
+            : `<button type="button" class="btn primary" data-trip-group>${people > 1 ? "Crea viaggio e dividi" : "Salva in Spese"}</button>`}
+        <a class="btn" href="${maps}" target="_blank" rel="noopener">Apri in Mappe</a></div>
+      <p class="muted small">Pedaggi stimati con le tariffe ufficiali di ogni autostrada. Il casello può differire.</p>
+    </div>`;
+  }
+
+  // Campo luogo con suggerimenti mentre si scrive.
+  function placeFieldHTML(which) {
+    const val = trip[which];
+    const label = which === "from" ? "Partenza" : "Arrivo";
+    if (val) {
+      return `<div class="field"><span>${label}</span><div class="picked"><span>${val.gps ? "📍 La mia posizione" : `<strong>${esc(val.name)}</strong>`}</span>
+        <button type="button" class="icon-btn" data-pf-clear="${which}" aria-label="Cambia ${label.toLowerCase()}">✕</button></div></div>`;
+    }
+    const quick = (which === "from" ? [`<button type="button" class="chip-q" data-pf-gps>📍 La mia posizione</button>`] : [])
+      .concat(places.map((p) => `<button type="button" class="chip-q" data-pf-place="${which}:${esc(p.id)}">${esc(p.name)}</button>`));
+    return `<div class="field pf"><span>${label}</span>
+      <input class="pf-input" data-pf-input="${which}" type="search" placeholder="Scrivi un indirizzo o un comune" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="${label}">
+      <ul class="results pf-list" id="pf-list-${which}"></ul>
+      ${quick.length ? `<div class="quick">${quick.join("")}</div>` : ""}</div>`;
+  }
+
+  function peopleHTML() {
+    const ps = tripPrefs.people;
+    const known = [...new Set(groups.flatMap((g) => g.people.map((p) => p.name)))].filter((n) => !ps.includes(n) && !/^Persona \d+$/.test(n)).slice(0, 8);
+    return `<div class="field"><span>Chi viaggia</span>
+      <div class="people">${ps.map((n, i) => `<span class="person"><button type="button" class="pname" data-pp-rename="${i}">${esc(n)}</button>${ps.length > 1 ? `<button type="button" class="px" data-pp-del="${i}" aria-label="Togli ${esc(n)}">✕</button>` : ""}</span>`).join("")}</div>
+      <div class="inline pp-add">
+        <div class="stepper" role="group" aria-label="Numero di persone"><button type="button" data-pp-step="-1" aria-label="Una persona in meno">−</button><output>${ps.length}</output><button type="button" data-pp-step="1" aria-label="Una persona in più">+</button></div>
+        <input name="pname" placeholder="Aggiungi nome" autocomplete="off" enterkeyhint="done" aria-label="Aggiungi nome">
+        <button type="button" class="btn" data-pp-add>Aggiungi</button>
+      </div>
+      ${known.length || CAN_CONTACTS ? `<div class="quick">${CAN_CONTACTS ? `<button type="button" class="chip-q" data-pp-contacts>👤 Dalla rubrica</button>` : ""}${known.map((n) => `<button type="button" class="chip-q" data-pp-known="${esc(n)}">+ ${esc(n)}</button>`).join("")}</div>` : ""}
     </div>`;
   }
 
   function tripHTML() {
-    const car = activeCar();
+    const car = tripCar();
     const fuel = tripFuel();
     const u = fuel === 3 ? "kg" : "L";
-    const dest = trip.to
-      ? `<div class="picked"><span><strong>${esc(trip.to.name)}</strong></span><button type="button" class="icon-btn" data-trip-clear aria-label="Cambia arrivo">✕</button></div>`
-      : `<div class="inline"><input name="q" type="search" placeholder="Comune o indirizzo" enterkeyhint="search" aria-label="Cerca l'arrivo"><button class="btn" type="button" data-trip-search>Cerca</button></div>
-        ${places.length ? `<div class="preset-row">${places.map((p) => `<button type="button" class="btn small-btn" data-trip-to="${esc(p.id)}">${esc(p.name)}</button>`).join("")}</div>` : ""}
-        ${trip.msg ? `<p class="muted small" role="status">${trip.msg}</p>` : ""}
-        ${trip.results.length ? `<ul class="results">${trip.results.map((r, i) => `<li><button type="button" data-trip-pick="${i}"><strong>${esc(r.name)}</strong><span class="muted small">${esc(r.detail || "")}</span></button></li>`).join("")}</ul>` : ""}`;
     return `<form id="trip-form" class="form" autocomplete="off">
-        <label class="field"><span>Partenza</span><select name="from">
-          <option value="gps">La mia posizione</option>${places.map((p) => `<option value="${esc(p.id)}"${trip.from === p.id ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
-        <div class="field"><span>Arrivo</span>${dest}</div>
-        <div class="inline trip-opts">
-          <label class="check"><input type="checkbox" name="round"${tripPrefs.roundTrip ? " checked" : ""}> Andata e ritorno</label>
-          <label class="check">Persone <input name="people" type="number" inputmode="numeric" min="1" max="9" value="${tripPrefs.people}"></label>
-        </div>
-        <div class="field"><span>Auto</span>${car
-          ? `<p class="car-sum"><strong>${esc(car.name)}</strong> · ${esc(FUELS[car.fuel])} · ${nf1.format(100 / car.cons)} km/${u} <button type="button" class="linkish" data-go="auto">cambia</button></p>`
-          : `<div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="30" value="${tripPrefs.cons}" aria-label="Consumo"><span class="unit">${u}/100 km</span></div>
-             <button type="button" class="linkish" data-car-new>+ aggiungi la tua auto</button>`}</div>
+        ${placeFieldHTML("from")}
+        ${placeFieldHTML("to")}
+        <label class="check"><input type="checkbox" name="round"${tripPrefs.roundTrip ? " checked" : ""}> Andata e ritorno</label>
+        ${peopleHTML()}
+        <label class="field"><span>Auto</span><select name="car" data-trip-car>
+          ${cars.map((c) => `<option value="${esc(c.id)}"${car && car.id === c.id ? " selected" : ""}>${esc(c.name)} · ${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"}</option>`).join("")}
+          <option value=""${car ? "" : " selected"}>Nessuna auto</option>
+          <option value="__new">+ Nuova auto…</option></select></label>
+        ${car ? "" : `<div class="field"><span>Consumo</span><div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="30" value="${tripPrefs.cons}" aria-label="Consumo"><span class="unit">${u}/100 km</span></div>
+          <select name="tfuel" data-trip-fuel aria-label="Carburante">${[2, 1, 4, 3].map((f) => `<option value="${f}"${fuel === f ? " selected" : ""}>${FUELS[f]}</option>`).join("")}</select></div>`}
         <label class="field"><span>Prezzo ${esc(FUELS[fuel])} (€/${u})</span>
-          <input name="price" type="number" inputmode="decimal" step="0.001" min="0.3" max="5" value="${esc(trip.price)}" placeholder="${defaultTripPrice().toFixed(3)}"></label>
+          <input name="price" type="number" inputmode="decimal" step="0.001" min="0.3" max="5" value="${esc(trip.price)}" placeholder="${FALLBACK_PRICE[fuel].toFixed(3)}" data-trip-price>
+          <small class="muted">${priceHint()}</small></label>
         <p class="form-err" role="alert" hidden></p>
         <button class="btn primary" type="submit">Calcola</button>
       </form>
@@ -1170,36 +1271,92 @@
     if (keepScroll) window.scrollTo(0, y);
     const real = $("#toll-real");
     if (real) real.addEventListener("change", (e) => { trip.tollReal = e.target.value; readTripForm(); openTrip(true); });
+    if (!trip.priceInfo) refreshTripPrice();
   }
 
-  async function tripSearch() {
-    const f = $("#trip-form");
-    const q = f && f.q ? f.q.value.trim() : "";
-    readTripForm();
+  // Suggerimenti: Photon (OpenStreetMap), fatto per la ricerca mentre si scrive.
+  let suggestTimer = 0, suggestCtl = null;
+  function onPlaceInput(input) {
+    const which = input.dataset.pfInput;
+    const q = input.value.trim();
+    clearTimeout(suggestTimer);
+    const list = $("#pf-list-" + which);
+    if (q.length < 3) { trip.suggest[which] = []; list.innerHTML = ""; return; }
+    suggestTimer = setTimeout(async () => {
+      if (suggestCtl) suggestCtl.abort();
+      const ctl = suggestCtl = new AbortController();
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, 6000);
+      const near = state.gps || (trip.from && !trip.from.gps ? trip.from : null);
+      try {
+        const res = await api.suggest(q, near, ctl.signal).finally(() => clearTimeout(timer));
+        if (input.value.trim() !== q) return;
+        trip.suggest[which] = res;
+        list.innerHTML = res.length
+          ? res.map((r, i) => `<li><button type="button" data-pf-pick="${which}:${i}"><strong>${esc(r.name)}</strong><span class="muted small">${esc(r.detail || "")}</span></button></li>`).join("")
+          : `<li class="muted small pf-empty">Nessun risultato</li>`;
+      } catch (e) {
+        // Photon non risponde (limite d'uso o rete): propongo la ricerca classica su invio.
+        if (e.name !== "AbortError" || timedOut) list.innerHTML = `<li><button type="button" data-pf-search="${which}"><strong>Cerca «${esc(q)}»</strong><span class="muted small">Suggerimenti non disponibili ora</span></button></li>`;
+      }
+    }, 280);
+  }
+
+  async function placeSearchFallback(which) {
+    const input = $(`[data-pf-input=${which}]`);
+    const list = $("#pf-list-" + which);
+    const q = input ? input.value.trim() : "";
     if (q.length < 2) return;
-    trip.msg = "Cerco…"; trip.results = []; openTrip(true);
+    list.innerHTML = `<li class="muted small pf-empty">Cerco…</li>`;
     try {
-      trip.results = await api.geocode(q);
-      trip.msg = trip.results.length ? "" : "Nessun risultato. Prova con il nome del comune.";
-    } catch (err) { trip.msg = "Ricerca non riuscita: " + esc(err.message || err); }
+      const res = await api.geocode(q);
+      trip.suggest[which] = res;
+      list.innerHTML = res.length
+        ? res.map((r, i) => `<li><button type="button" data-pf-pick="${which}:${i}"><strong>${esc(r.name)}</strong><span class="muted small">${esc(r.detail || "")}</span></button></li>`).join("")
+        : `<li class="muted small pf-empty">Nessun risultato</li>`;
+    } catch (_) { list.innerHTML = `<li class="muted small pf-empty">Ricerca non riuscita: controlla la connessione</li>`; }
+  }
+
+  function setTripPlace(which, val) {
+    readTripForm();
+    trip[which] = val;
+    trip.suggest[which] = [];
+    trip.res = null; trip.groupId = null; trip.tollReal = "";
+    if (which === "from") { trip.priceInfo = null; }
     openTrip(true);
+    if (which === "from" && val) refreshTripPrice();
+    if (which === "from" && val && !trip.to) { const i = $("[data-pf-input=to]"); if (i) i.focus(); }
+  }
+
+  function tripCreateGroup() {
+    const l = trip.last;
+    if (!l) return;
+    const people = tripPrefs.people.map((n) => ({ id: uid("p"), name: n }));
+    const all = people.map((p) => p.id);
+    const now = new Date().toISOString();
+    const g = { id: uid("g"), name: ((l.from ? l.from + " → " : "") + l.to + (l.round ? " (A/R)" : "")).slice(0, 40), people, expenses: [] };
+    if (l.fuel > 0) g.expenses.push({ id: uid("e"), desc: "Carburante", amount: Math.round(l.fuel * 100) / 100, payer: people[0].id, split: all, date: now });
+    if (l.toll > 0) g.expenses.push({ id: uid("e"), desc: "Pedaggi", amount: Math.round(l.toll * 100) / 100, payer: people[0].id, split: all, date: now });
+    groups.unshift(g); saveGroups();
+    trip.groupId = g.id;
+    spese.open = g.id; spese.adding = false; spese.pending = null;
+    go("spese");
   }
 
   async function tripCalc(form) {
     readTripForm();
     const err = $(".form-err", form);
     const fail = (m) => { err.hidden = false; err.textContent = m; };
+    if (!trip.from) return fail("Scegli la partenza.");
     if (!trip.to) return fail("Scegli l'arrivo.");
     let from;
-    try {
-      from = trip.from === "gps" ? await getPosition() : places.find((p) => p.id === trip.from);
-    } catch (e) { return fail(e.message); }
-    if (!from) return fail("Scegli la partenza.");
+    try { from = await fromPoint(); } catch (e) { return fail(e.message); }
     const btn = $("button[type=submit]", form);
     btn.disabled = true; btn.textContent = "Calcolo…";
     try {
       [trip.res, trip.tolls] = await Promise.all([api.route(from, trip.to), api.tolls()]);
       trip.fromPoint = { lat: from.lat, lng: from.lng };
+      trip.groupId = null;
       openTrip(true);
       const out = $("#trip-out");
       if (out) out.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -1207,6 +1364,84 @@
       btn.disabled = false; btn.textContent = "Calcola";
       fail("Percorso non calcolato: " + (e.message || e));
     }
+  }
+
+  function tripClick(t) {
+    const pick = t.closest("[data-pf-pick]");
+    if (pick) { const [w, i] = pick.dataset.pfPick.split(":"); setTripPlace(w, trip.suggest[w][+i]); return true; }
+    if (t.closest("[data-pf-gps]")) { setTripPlace("from", { gps: true }); return true; }
+    const fb = t.closest("[data-pf-search]");
+    if (fb) { placeSearchFallback(fb.dataset.pfSearch); return true; }
+    const pl = t.closest("[data-pf-place]");
+    if (pl) { const [w, id] = pl.dataset.pfPlace.split(":"); const p = places.find((x) => x.id === id); if (p) setTripPlace(w, { name: p.name, lat: p.lat, lng: p.lng }); return true; }
+    const cl = t.closest("[data-pf-clear]");
+    if (cl) { setTripPlace(cl.dataset.pfClear, null); const i = $(`[data-pf-input=${cl.dataset.pfClear}]`); if (i) i.focus(); return true; }
+    const step = t.closest("[data-pp-step]");
+    if (step) {
+      readTripForm();
+      const ps = tripPrefs.people;
+      if (+step.dataset.ppStep > 0 && ps.length < 20) ps.push("Persona " + (ps.length + 1));
+      else if (+step.dataset.ppStep < 0 && ps.length > 1) ps.pop();
+      saveTripPrefs(); trip.groupId = null; openTrip(true); return true;
+    }
+    if (t.closest("[data-pp-add]")) { addPeople([$("#trip-form [name=pname]").value]); return true; }
+    const kn = t.closest("[data-pp-known]");
+    if (kn) { addPeople([kn.dataset.ppKnown]); return true; }
+    const del = t.closest("[data-pp-del]");
+    if (del) { readTripForm(); tripPrefs.people.splice(+del.dataset.ppDel, 1); saveTripPrefs(); trip.groupId = null; openTrip(true); return true; }
+    const ren = t.closest("[data-pp-rename]");
+    if (ren) {
+      const i = +ren.dataset.ppRename;
+      const n = (window.prompt("Nome", tripPrefs.people[i]) || "").trim().slice(0, 30);
+      if (n) { readTripForm(); tripPrefs.people[i] = n; saveTripPrefs(); openTrip(true); }
+      return true;
+    }
+    if (t.closest("[data-pp-contacts]")) {
+      navigator.contacts.select(["name"], { multiple: true })
+        .then((list) => addPeople(list.map((c) => (c.name && c.name[0]) || "").filter(Boolean)))
+        .catch(() => {});
+      return true;
+    }
+    if (t.closest("[data-price-reset]")) { trip.priceEdited = false; trip.price = trip.priceInfo.avg.toFixed(3); openTrip(true); return true; }
+    if (t.closest("[data-trip-group]")) { tripCreateGroup(); return true; }
+    const sg = t.closest("[data-sp-goto]");
+    if (sg) { spese.open = sg.dataset.spGoto; go("spese"); return true; }
+    return false;
+  }
+
+  function addPeople(names) {
+    readTripForm();
+    const ps = tripPrefs.people;
+    for (let n of names) {
+      n = String(n || "").trim().slice(0, 30);
+      if (!n || ps.includes(n)) continue;
+      // Sostituisco i segnaposto "Persona N" prima di allungare la lista.
+      const ph = ps.findIndex((x) => /^Persona \d+$/.test(x));
+      if (ph >= 0) ps[ph] = n; else ps.push(n);
+    }
+    saveTripPrefs(); trip.groupId = null; openTrip(true);
+  }
+
+  function tripChange(t) {
+    if (t.matches("[data-trip-car]")) {
+      readTripForm();
+      if (t.value === "__new") { openCarForm(null, "viaggio"); return true; }
+      const prevFuel = tripFuel();
+      trip.carId = t.value;
+      if (tripFuel() !== prevFuel) { trip.priceInfo = null; trip.priceEdited = false; trip.price = ""; }
+      trip.groupId = null;
+      openTrip(true);
+      return true;
+    }
+    if (t.matches("[data-trip-fuel]")) {
+      readTripForm();
+      trip.fuel = +t.value; // senza auto: carburante solo per questo viaggio
+      trip.priceInfo = null; trip.priceEdited = false; trip.price = "";
+      openTrip(true);
+      return true;
+    }
+    if (t.matches("[data-trip-price]")) { trip.priceEdited = true; trip.price = t.value; return true; }
+    return false;
   }
 
   function loadHistoryMeta() {
@@ -1432,15 +1667,6 @@
     spese.open = g.id;
   }
 
-  function spesePrefillFromTrip() {
-    const l = trip.last;
-    if (!l) return;
-    spese.pending = { desc: `${l.round ? "A/R " : ""}${l.to}: carburante e pedaggi`.slice(0, 60), amount: l.total };
-    spese.adding = false;
-    spese.open = groups.length === 1 ? groups[0].id : null;
-    go("spese");
-  }
-
   function speseClick(t) {
     if (t.closest("[data-sp-create]")) { spese.creating = true; renderSpese(); return true; }
     if (t.closest("[data-sp-nocreate]")) { spese.creating = false; renderSpese(); return true; }
@@ -1497,7 +1723,7 @@
   }
 
   // ---------- Schede (menu in basso) ----------
-  const TABS = { prezzi: "Prezzi", viaggio: "Viaggio", spese: "Spese", auto: "Auto", altro: "Altro" };
+  const TABS = { prezzi: "Prezzi", viaggio: "Viaggio", spese: "Spese", auto: "Garage", altro: "Altro" };
   let currentTab = "prezzi";
   function go(name) {
     if (location.hash === "#" + name) route();
@@ -1534,15 +1760,10 @@
   document.addEventListener("click", (e) => {
     const t = e.target;
     if (t.closest("[data-places]")) { placeResults = []; openPlaces(); return; }
-    if (t.closest("[data-trip-split]")) { spesePrefillFromTrip(); return; }
     if (currentTab === "spese" && speseClick(t)) return;
     if (t.closest("[data-car-new]")) { openCarForm(null); return; }
-    if (t.closest("[data-trip-search]")) { tripSearch(); return; }
-    const tTo = t.closest("[data-trip-to]");
-    if (tTo) { readTripForm(); const p = places.find((x) => x.id === tTo.dataset.tripTo); if (p) { trip.to = { ...p }; trip.res = null; } openTrip(true); return; }
-    const tPick = t.closest("[data-trip-pick]");
-    if (tPick) { readTripForm(); trip.to = trip.results[+tPick.dataset.tripPick]; trip.results = []; trip.res = null; openTrip(true); return; }
-    if (t.closest("[data-trip-clear]")) { readTripForm(); trip.to = null; trip.res = null; trip.tollReal = ""; openTrip(true); return; }
+    if (t.closest("[data-car-cancel]")) { const tg = t.closest("[data-car-cancel]").dataset.carCancel; tg === "viaggio" ? openTrip() : renderAuto(); window.scrollTo(0, 0); return; }
+    if (currentTab === "viaggio" && tripClick(t)) return;
     const goEl = t.closest("[data-go]");
     if (goEl) { go(goEl.dataset.go); return; }
     const cUse = t.closest("[data-car-use]");
@@ -1633,13 +1854,26 @@
     const open = t.closest("[data-open]");
     if (open && !open.closest("#sheet")) { openStation(open.dataset.open); return; }
   });
+  document.addEventListener("input", (e) => {
+    if (e.target.matches("[data-pf-input]")) onPlaceInput(e.target);
+  });
+  document.addEventListener("change", (e) => {
+    if (currentTab === "viaggio") tripChange(e.target);
+  });
   document.addEventListener("submit", (e) => {
     if (e.target.id === "car-form") { e.preventDefault(); saveCarForm(e.target); }
     if (e.target.id === "trip-form") { e.preventDefault(); tripCalc(e.target); }
     if (e.target.id === "sp-new" || e.target.id === "sp-exp") { e.preventDefault(); speseSubmit(e.target); }
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && e.target.matches("#trip-form [name=q]")) { e.preventDefault(); tripSearch(); return; }
+    if (e.key === "Enter" && e.target.matches("[data-pf-input]")) {
+      e.preventDefault();
+      const w = e.target.dataset.pfInput;
+      if (trip.suggest[w] && trip.suggest[w][0]) setTripPlace(w, trip.suggest[w][0]);
+      else placeSearchFallback(w);
+      return;
+    }
+    if (e.key === "Enter" && e.target.matches("#trip-form [name=pname]")) { e.preventDefault(); addPeople([e.target.value]); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches("article[data-open]")) {
       e.preventDefault();
       openStation(e.target.dataset.open);

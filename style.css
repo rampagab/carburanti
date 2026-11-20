@@ -412,3 +412,23 @@ html.ios .tabbar .ti { height: 26px; }
 .tolls { list-style: none; margin: -4px 0 0; padding: 0; font-size: 14px; color: var(--ink-2); }
 .tolls li { display: grid; grid-template-columns: 1fr auto 80px; gap: 10px; padding: 3px 0; font-variant-numeric: tabular-nums; }
 .tolls li span:last-child { text-align: right; }
+
+/* ---------- Viaggio: campi luogo, persone ---------- */
+.pf { position: relative; }
+.pf-input { width: 100%; height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); padding: 0 12px; font-size: 17px; }
+.pf-list { margin: 4px 0 0; }
+.pf-list:empty { display: none; }
+.pf-empty { padding: 8px 4px; list-style: none; }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.chip-q { height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.people { display: flex; flex-wrap: wrap; gap: 6px; }
+.person { display: inline-flex; align-items: center; border-radius: 18px; background: var(--accent-soft); color: var(--ink); }
+.pname { border: 0; background: none; padding: 6px 4px 6px 12px; font-weight: 600; font-size: 15px; }
+.person .pname:last-child { padding-right: 12px; }
+.px { border: 0; background: none; padding: 6px 10px 6px 4px; color: var(--muted); }
+.pp-add { margin-top: 8px; align-items: center; }
+.stepper { flex: none; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; height: 44px; }
+.stepper button { width: 40px; height: 100%; border: 0; background: var(--surface-2); font-size: 20px; font-weight: 600; }
+.stepper output { min-width: 32px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+.form .field small { font-size: 13px; }
+html.android .chip-q, html.android .person { border-radius: 8px; }
