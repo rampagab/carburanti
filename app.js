@@ -672,7 +672,7 @@
       </section>
       <section>
         <h3>Dati</h3>
-        <p class="muted small">Fonte: ${DEMO ? "modalità demo (dati finti)" : "Osservatorio prezzi carburanti MIMIT, tramite il tuo Worker"}.
+        <p class="muted small">Fonte: ${DEMO ? "modalità demo (dati finti)" : "Ministero delle Imprese e del Made in Italy – Osservatorio prezzi carburanti (licenza IODL 2.0)"}.
         ${state.average && state.average.updated ? `<br>Storico aggiornato ${esc(ago(state.average.updated).text)}.` : ""}</p>
         <button class="btn" id="btn-clear-cache">Svuota i dati salvati offline</button>
         <p class="muted small">Preferiti salvati: ${favs.size}.</p>

@@ -200,6 +200,7 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-
 @media (prefers-reduced-motion: reduce) { .sk, .spin { animation: none; } }
 
 .foot { text-align: center; color: var(--muted); font-size: 12px; margin: 20px 8px 0; }
+.foot a { color: inherit; }
 
 /* ---------- Pannello dal basso ---------- */
 .sheet {
