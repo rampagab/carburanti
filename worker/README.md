@@ -60,7 +60,25 @@ Ci sono già `https://rampagab.github.io` (GitHub Pages) e `http://localhost:876
 Così un altro sito non può usare il tuo Worker e consumare la tua quota.
 Aprire gli indirizzi direttamente nella barra del browser funziona sempre, come nelle verifiche qui sopra.
 
-## Aggiornare il Worker
+## Aggiornamento automatico da GitHub (consigliato)
 
-Quando `worker.js` cambia nel repository, ripeti il punto 2: Edit code, incolla, Deploy.
+Una volta collegato, ogni modifica a `worker/` pubblicata su GitHub aggiorna il Worker da sola, senza copia e incolla.
+Non servono token né chiavi nel repository: l'autorizzazione la dai tu, una sola volta, dalla dashboard.
+
+1. Apri il Worker `carburanti` › **Impostazioni** › **Build** (o **Compilazione**) › **Connetti** (Connect).
+2. Scegli **GitHub**. Se te lo chiede, autorizza l'app Cloudflare **solo** sul repository `rampagab/carburanti`.
+3. Compila così:
+   - **Repository:** `rampagab/carburanti`; **branch:** `main`.
+   - **Directory principale** (Root directory): `worker`.
+   - **Comando di build:** lascialo vuoto.
+   - **Comando di distribuzione** (Deploy command): `npx wrangler deploy`.
+   - Se c'è **Percorsi da monitorare** (Build watch paths), scrivi `worker/*`. Così le modifiche all'app non rifanno il Worker.
+4. Premi **Salva e distribuisci** (o **Connect**).
+
+La configurazione è in [`wrangler.toml`](wrangler.toml).
+**Attenzione al KV:** se lo usi, quando il Worker si pubblica da GitHub conta il file, non la dashboard. Inserisci l'ID del KV in `wrangler.toml`, come spiegato nel file, altrimenti il collegamento `ADDR` viene rimosso.
+
+## Aggiornare il Worker a mano
+
+Se non usi l'aggiornamento automatico, quando `worker.js` cambia ripeti il punto 2: Edit code, incolla, Deploy.
 Il binding KV resta configurato.

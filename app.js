@@ -186,6 +186,7 @@
     };
   }
 
+  const carCache = {};
   const api = {
     async search(q) {
       const raw = DEMO
@@ -206,7 +207,9 @@
       if (DEMO) return window.CarburantiDemo.geocode(q);
       const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=it&limit=6&addressdetails=1&accept-language=it&q=" + encodeURIComponent(q);
       const list = await getJSON(url, 10000);
-      return (list || []).map((x) => ({ name: placeName(x), detail: x.display_name, lat: +x.lat, lng: +x.lon }));
+      const seen = new Set();
+      return (list || []).map((x) => ({ name: placeName(x), detail: x.display_name, lat: +x.lat, lng: +x.lon }))
+        .filter((r) => !seen.has(r.name) && seen.add(r.name)); // stesso comune come "comune" e come "paese"
     },
     async reverse(lat, lng) {
       if (DEMO) return "Posizione demo";
@@ -235,6 +238,15 @@
         }
       }
       return { km: r.distance / 1000, min: r.duration / 60, mwKm: mw / 1000, roads };
+    },
+    // Database auto (EEA, generato da scripts/build_cars.py): indice marche e un file per marca.
+    async carIndex() {
+      if (!carCache.index) carCache.index = getJSON(`${CFG.DATA_URL || "data"}/cars/index.json`, 15000).catch((e) => { carCache.index = null; throw e; });
+      return carCache.index;
+    },
+    async carMake(file) {
+      if (!carCache[file]) carCache[file] = getJSON(`${CFG.DATA_URL || "data"}/cars/${encodeURIComponent(file)}.json`, 15000).catch((e) => { delete carCache[file]; throw e; });
+      return carCache[file];
     },
     async meta() {
       if (DEMO) return { zones: [{ name: "Monselice", lat: 45.2414, lng: 11.7497, radius: 15 }, { name: "Padova", lat: 45.4064, lng: 11.8768, radius: 15 }] };
@@ -795,7 +807,7 @@
     const carRow = (c) => `<li>
         <button class="pl-name car-pick" data-car-use="${esc(c.id)}" aria-pressed="${c.id === activeCarId}">
           <span class="radio" aria-hidden="true"></span><span><strong>${esc(c.name)}</strong>
-          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"} ${c.realKml || !c.declL100 ? "reali" : "(dichiarato +" + DECLARED_GAP * 100 + "%)"} · serbatoio ${nf1.format(c.tank).replace(",0", "")}</span></span></button>
+          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"} ${c.realKml || !c.declL100 ? "reali" : "(dichiarato +" + gapFor(c) * 100 + "%)"} · serbatoio ${nf1.format(c.tank).replace(",0", "")}</span></span></button>
         <span class="pl-btns"><button class="icon-btn" data-car-edit="${esc(c.id)}" aria-label="Modifica ${esc(c.name)}">✎</button>
         <button class="icon-btn" data-car-del="${esc(c.id)}" aria-label="Elimina ${esc(c.name)}">✕</button></span></li>`;
     openSheet(`<header class="sh-head"><h2 id="sheet-title">Impostazioni</h2></header>
@@ -833,8 +845,23 @@
     });
   }
 
-  // Il consumo dichiarato (WLTP) è spesso ottimistico: senza un dato reale lo aumento di questa quota.
-  const DECLARED_GAP = 0.15;
+  // Il consumo dichiarato è ottimistico: senza un dato reale lo aumento di questa quota.
+  // Ciclo WLTP (auto dal 2018 circa): +15%. Vecchio ciclo NEDC: +30%.
+  const DECLARED_GAP = 0.15, DECLARED_GAP_NEDC = 0.30;
+  const gapFor = (c) => (c && c.nedc ? DECLARED_GAP_NEDC : DECLARED_GAP);
+  const titleCase = (t) => String(t).toLowerCase().replace(/(^|[\s\-/(])(\p{L})/gu, (m, p, c) => p + c.toUpperCase())
+    .replace(/\b(Bmw|Vw|Ds|Mg|Gt|Gti|Suv|Amg|Dr|Up|Cc|Rs|Sw)\b/g, (w) => w.toUpperCase());
+  const cv = (kw) => Math.round(kw * 1.36);
+  function engineLabel(v) {
+    const disp = v.cc ? (v.cc / 1000).toFixed(1) + " " : "";
+    const years = v.y[0] === v.y[1] ? v.y[0] : v.y[0] + "–" + v.y[1];
+    return `${disp}${cv(v.kw)} CV · ${FUELS[v.f]}${v.h ? " ibrida" : ""} · ${years}`;
+  }
+  function guessTank(v) {
+    if (v.f === 3) return v.kw < 70 ? 12 : 15;     // metano, kg
+    if (v.f === 4) return v.kw < 70 ? 35 : 40;     // GPL, litri utili
+    return v.kw < 60 ? 40 : v.kw < 90 ? 47 : v.kw < 130 ? 55 : 65;
+  }
 
   function openCarForm(car) {
     sheetReq++;
@@ -843,7 +870,14 @@
     const real = c.realKml || (c.cons && !c.declL100 ? Math.round(1000 / c.cons) / 10 : "");
     const u = +c.fuel === 3 ? "kg" : "L";
     openSheet(`<header class="sh-head"><h2 id="sheet-title">${car ? "Modifica auto" : "Nuova auto"}</h2></header>
-      <form id="car-form" class="form" novalidate data-id="${esc(car ? car.id : "")}" autocomplete="off">
+      <form id="car-form" class="form" novalidate data-id="${esc(car ? car.id : "")}" data-nedc="${c.nedc ? 1 : ""}" autocomplete="off">
+        <fieldset class="box cfg">
+          <legend>Trova la tua auto</legend>
+          <label class="field"><span>Marca</span><select name="cfgMake" disabled><option value="">Carico le marche…</option></select></label>
+          <div id="cfg-model"></div>
+          <div id="cfg-engines"></div>
+          <p class="muted small">Dati ufficiali EEA delle auto immatricolate in Italia dal 2012. Non trovi la tua? Compila i campi qui sotto.</p>
+        </fieldset>
         <label class="field"><span>Nome</span><input name="name" required maxlength="40" placeholder="Es. Panda, Golf, auto di lavoro" value="${esc(c.name)}"></label>
         <label class="field"><span>Carburante</span><select name="fuel">${[2, 1, 4, 3].map((f) => `<option value="${f}"${+c.fuel === f ? " selected" : ""}>${FUELS[f]}</option>`).join("")}</select></label>
 
@@ -865,7 +899,7 @@
           <legend>Consumo dichiarato dalla casa <span class="tag">facoltativo</span></legend>
           <div class="inline"><input name="decl" type="number" inputmode="decimal" step="0.1" min="1" max="100" value="${c.declL100 || ""}" aria-label="Consumo dichiarato">
             <select name="unit"><option value="l100">L/100 km</option><option value="kml">km/L</option></select></div>
-          <p class="muted small">Usato solo se non inserisci quello reale, aumentato del ${DECLARED_GAP * 100}%: nella guida di tutti i giorni si consuma quasi sempre più del dato ufficiale.</p>
+          <p class="muted small" id="decl-note">Usato solo se non inserisci quello reale, aumentato del ${gapFor(c) * 100}%: nella guida di tutti i giorni si consuma quasi sempre più del dato ufficiale.</p>
         </fieldset>
 
         <div class="field"><span>Non conosci i valori? Parti da uno tipico</span>
@@ -874,6 +908,83 @@
         <p class="form-err" role="alert" hidden></p>
         <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-settings>Annulla</button></div>
       </form>`);
+    initConfigurator($("#car-form"), c);
+  }
+
+  // Configuratore: marca › modello › motorizzazione (con filtro per carburante).
+  async function initConfigurator(form, car) {
+    const selMake = form.cfgMake;
+    let index;
+    try { index = await api.carIndex(); } catch (_) {
+      selMake.innerHTML = `<option value="">Database auto non disponibile</option>`;
+      return;
+    }
+    if (!form.isConnected) return;
+    const makes = index.makes.slice().sort((a, b) => a.make.localeCompare(b.make));
+    const top = index.makes.slice().sort((a, b) => b.n - a.n).slice(0, 10).map((m) => m.file);
+    const opt = (m) => `<option value="${esc(m.file)}">${esc(titleCase(m.make))}</option>`;
+    selMake.innerHTML = `<option value="">Scegli la marca</option>
+      <optgroup label="Più diffuse">${makes.filter((m) => top.includes(m.file)).map(opt).join("")}</optgroup>
+      <optgroup label="Tutte">${makes.map(opt).join("")}</optgroup>`;
+    selMake.disabled = false;
+    if (car && car.cfg) selMake.value = car.cfg.make;
+
+    let data = null, models = [], fuelFilter = 0;
+    const modelBox = $("#cfg-model", form), engBox = $("#cfg-engines", form);
+
+    function renderEngines() {
+      const m = models.find((x) => x.m === form.cfgModel.value);
+      if (!m) { engBox.innerHTML = ""; return; }
+      const fuels = [...new Set(m.v.map((v) => v.f))].sort((a, b) => [2, 1, 4, 3].indexOf(a) - [2, 1, 4, 3].indexOf(b));
+      if (fuelFilter && !fuels.includes(fuelFilter)) fuelFilter = 0;
+      const list = m.v.filter((v) => !fuelFilter || v.f === fuelFilter).slice().sort((a, b) => a.f - b.f || b.n - a.n);
+      engBox.innerHTML = `<div class="field"><span>Motorizzazione</span>
+        ${fuels.length > 1 ? `<div class="chips fuel-chips" role="radiogroup" aria-label="Carburante">
+          <button type="button" role="radio" aria-checked="${!fuelFilter}" data-cfg-fuel="0">Tutte</button>
+          ${fuels.map((f) => `<button type="button" role="radio" aria-checked="${fuelFilter === f}" data-cfg-fuel="${f}">${FUELS[f]}</button>`).join("")}</div>` : ""}
+        <ul class="results engines">${list.map((v) => `<li><button type="button" data-cfg-engine="${m.v.indexOf(v)}">
+          <strong>${esc(engineLabel(v))}</strong>
+          <span class="muted small">${nf1.format(v.l)} ${v.f === 3 ? "kg" : "L"}/100 km dichiarati (${v.nedc ? "NEDC" : "WLTP"}) · ${v.n.toLocaleString("it-IT")} immatricolate</span>
+        </button></li>`).join("")}</ul></div>`;
+    }
+
+    async function loadMake() {
+      modelBox.innerHTML = ""; engBox.innerHTML = "";
+      if (!selMake.value) return;
+      modelBox.innerHTML = `<p class="muted small">Carico i modelli…</p>`;
+      try { data = await api.carMake(selMake.value); } catch (_) { modelBox.innerHTML = `<p class="muted small">Modelli non disponibili.</p>`; return; }
+      models = data.models;
+      const popular = models.slice().sort((a, b) => b.n - a.n).slice(0, 8);
+      const o = (m) => `<option value="${esc(m.m)}">${esc(titleCase(m.m))}</option>`;
+      modelBox.innerHTML = `<label class="field"><span>Modello</span><select name="cfgModel"><option value="">Scegli il modello</option>
+        ${models.length > 12 ? `<optgroup label="Più diffusi">${popular.map(o).join("")}</optgroup><optgroup label="Tutti">` : ""}${models.map(o).join("")}${models.length > 12 ? "</optgroup>" : ""}</select></label>`;
+      form.cfgModel.addEventListener("change", () => { fuelFilter = 0; renderEngines(); });
+      if (car && car.cfg && car.cfg.make === selMake.value) { form.cfgModel.value = car.cfg.model; renderEngines(); }
+    }
+    selMake.addEventListener("change", loadMake);
+    if (selMake.value) loadMake();
+
+    form.addEventListener("click", (e) => {
+      const fb = e.target.closest("[data-cfg-fuel]");
+      if (fb) { fuelFilter = +fb.dataset.cfgFuel; renderEngines(); return; }
+      const eb = e.target.closest("[data-cfg-engine]");
+      if (!eb) return;
+      const m = models.find((x) => x.m === form.cfgModel.value);
+      const v = m.v[+eb.dataset.cfgEngine];
+      const makeName = titleCase(data.make);
+      form.name.value = `${makeName} ${titleCase(m.m)} ${v.cc ? (v.cc / 1000).toFixed(1) + " " : ""}${cv(v.kw)} CV`.slice(0, 40);
+      form.fuel.value = String(v.f);
+      form.decl.value = v.l; form.unit.value = "l100";
+      if (!form.tank.value) form.tank.value = guessTank(v);
+      form.dataset.nedc = v.nedc ? "1" : "";
+      form.dataset.cfg = JSON.stringify({ make: selMake.value, model: m.m, engine: engineLabel(v) });
+      const note = $("#decl-note", form);
+      if (note) note.textContent = `Dato ufficiale ${v.nedc ? "NEDC" : "WLTP"}. Usato solo se non inserisci quello reale, aumentato del ${(v.nedc ? DECLARED_GAP_NEDC : DECLARED_GAP) * 100}%: nella guida di tutti i giorni si consuma quasi sempre più del dato ufficiale.`;
+      $$("[data-cfg-engine]", form).forEach((b) => b.classList.toggle("on", b === eb));
+      const real = form.real;
+      (real.value ? form.tank : real).scrollIntoView({ block: "center", behavior: "smooth" });
+      real.focus({ preventScroll: true });
+    });
   }
 
   const num = (v) => parseFloat(String(v == null ? "" : v).replace(",", "."));
@@ -896,7 +1007,11 @@
     else if (!hasReal && !hasDecl) msg = "Inserisci il consumo reale (oppure quello dichiarato).";
     else if (!(tank >= 5 && tank <= 150)) msg = "Il serbatoio deve essere tra 5 e 150.";
     if (msg) { err.hidden = false; err.textContent = msg; return; }
-    const cons = hasReal ? 100 / realKml : declL100 * (1 + DECLARED_GAP);
+    const nedc = form.dataset.nedc === "1";
+    const cons = hasReal ? 100 / realKml : declL100 * (1 + (nedc ? DECLARED_GAP_NEDC : DECLARED_GAP));
+    const prev = cars.find((x) => x.id === form.dataset.id);
+    let cfg = prev && prev.cfg;
+    try { if (form.dataset.cfg) cfg = JSON.parse(form.dataset.cfg); } catch (_) { /* ignora */ }
     const id = form.dataset.id || "c" + Date.now().toString(36);
     const car = {
       id, name, fuel,
@@ -904,6 +1019,8 @@
       realKml: hasReal ? Math.round(realKml * 10) / 10 : null,
       declL100: hasDecl ? Math.round(declL100 * 100) / 100 : null,
       tank: Math.round(tank * 10) / 10,
+      nedc: nedc || undefined,
+      cfg: cfg || undefined,
     };
     const i = cars.findIndex((x) => x.id === id);
     if (i >= 0) cars[i] = car; else cars.push(car);

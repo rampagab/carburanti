@@ -1,0 +1,15 @@
+# Configurazione per la pubblicazione automatica del Worker da GitHub (Cloudflare Workers Builds).
+# Nessun segreto: nome, file e data di compatibilità. Vedi worker/README.md, "Aggiornamento automatico".
+name = "carburanti"
+main = "worker.js"
+compatibility_date = "2025-11-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+# Memoria per gli indirizzi (facoltativa). Dopo aver creato il KV "carburanti-indirizzi"
+# togli il # dalle tre righe qui sotto e incolla il suo ID (si vede nella pagina del KV; non è un segreto).
+# [[kv_namespaces]]
+# binding = "ADDR"
+# id = "INCOLLA-QUI-L-ID-DEL-KV"

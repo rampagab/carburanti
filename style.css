@@ -330,3 +330,10 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-
 .calc[open] { display: grid; gap: 8px; }
 .form .inline > input, .form .inline > select { height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); padding: 0 10px; font-size: 17px; }
 .form .inline > input { flex: 1; min-width: 0; width: 0; }
+
+/* ---------- Configuratore auto ---------- */
+.cfg select { width: 100%; }
+.fuel-chips { margin: 2px 0 8px; flex-wrap: wrap; }
+.fuel-chips button { height: 32px; font-size: 14px; }
+.engines { max-height: 320px; overflow-y: auto; margin-top: 0; overscroll-behavior: contain; }
+.engines button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--accent-soft); }

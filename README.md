@@ -10,7 +10,12 @@ Su Safari: **Condividi › Aggiungi alla schermata Home**.
 - Prezzi in tempo reale vicino a te o nei tuoi **luoghi** salvati (tasto **+**).
 - Filtri per carburante, self/servito, raggio, marchio e aggiornamento nelle ultime 24 ore. Preferiti con la stella.
 - Riepilogo: il distributore più economico, la media della zona, il risparmio sul pieno e l'andamento rispetto a ieri.
-- **Le tue auto** (Impostazioni): per ogni auto imposti consumo e serbatoio. L'app calcola:
+- **Le tue auto** (Impostazioni):
+  - **configuratore marca › modello › motorizzazione**, con filtro per carburante, dai dati ufficiali EEA delle auto immatricolate in Italia dal 2012;
+  - **consumo reale** in km/L, inserito a mano o calcolato da un pieno all'altro;
+  - se manca quello reale, il dato dichiarato aumentato del 15% (WLTP) o del 30% (vecchio ciclo NEDC).
+
+  Con l'auto impostata l'app calcola:
   - il costo del pieno;
   - quanto spendi ogni 100 km;
   - il **risparmio netto** di ogni distributore rispetto al più vicino, già tolto il carburante per arrivarci.
@@ -44,11 +49,19 @@ Per avviarlo subito senza aspettare la mattina:
 
 Il riquadro «conviene oggi?» e il confronto con la media compaiono solo vicino alle zone raccolte. Il grafico dell'andamento cresce di un punto al giorno.
 
+## Database auto (GitHub Actions)
+
+`scripts/build_cars.py` scarica dall'Agenzia europea dell'ambiente (EEA) le auto immatricolate in Italia. Per ogni motorizzazione raccoglie marca, modello, carburante, cilindrata, potenza e consumo o CO₂ dichiarati, e genera `data/cars/`: un piccolo file per marca.
+Il workflow **Database auto** lo rilancia a inizio luglio, quando di solito esce un nuovo anno, oppure a mano da **Actions**.
+
+La ricerca per **targa** non c'è: in Italia non esiste un servizio gratuito e pubblico che la permetta.
+
 ## Servizi esterni (gratuiti, senza chiave)
 
 - Prezzi: Osservatorio prezzi carburanti del MIMIT. Licenza dei dati IODL 2.0. App personale, non affiliata al MIMIT.
 - Ricerca dei luoghi: OpenStreetMap Nominatim.
 - Percorsi: OSRM (server dimostrativo pubblico).
+- Auto: EEA, *Monitoring of CO2 emissions from passenger cars* (licenza CC BY 4.0).
 
 ## Prova in locale
 
