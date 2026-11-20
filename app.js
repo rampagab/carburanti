@@ -39,6 +39,15 @@
     { brand: "", fresh: false, favOnly: false }
   );
   const favs = new Set(store.get("favs", []));
+
+  // Luoghi preferiti (come le città nelle app del meteo), salvati sul dispositivo.
+  let places = store.get("places", null);
+  if (!Array.isArray(places)) {
+    places = (CFG.ZONES || []).map((z) => ({ id: String(z.id), name: z.name, lat: +z.lat, lng: +z.lng }));
+    store.set("places", places);
+  }
+  const savePlaces = () => store.set("places", places);
+  if (settings.zone !== "gps" && !places.some((p) => p.id === settings.zone)) settings.zone = "gps";
   const saveSettings = () => {
     const { zone, fuel, mode, radius, sort, liters } = settings;
     store.set("settings", { zone, fuel, mode, radius, sort, liters });
@@ -96,6 +105,15 @@
     if (parts.length > 1 && m) { city = fixCase(m[1]) + " (" + m[2].toUpperCase() + ")"; parts.pop(); }
     const street = parts.map((x) => fixCase(x.replace(/\s+SNC$/i, ""))).join(", ");
     return city ? street + ", " + city : street;
+  }
+
+  function placeName(x) {
+    const a = (x && x.address) || {};
+    const town = a.city || a.town || a.village || a.municipality || a.hamlet || a.suburb || "";
+    const prov = String(a["ISO3166-2-lvl6"] || "").replace(/^IT-/, "");
+    let name = (x && x.name) || a.road || town || String((x && x.display_name) || "").split(",")[0];
+    if (town && name !== town) name += ", " + town;
+    return prov && /^[A-Z]{2}$/.test(prov) ? name + " (" + prov + ")" : name;
   }
 
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -161,6 +179,20 @@
       if (DEMO) return window.CarburantiDemo.history(id);
       try { return await getJSON(`${CFG.DATA_URL || "data"}/history/${encodeURIComponent(id)}.json`, 8000); } catch (_) { return null; }
     },
+    // Ricerca luoghi: OpenStreetMap Nominatim (gratuito, senza chiave; solo su invio, niente autocompletamento).
+    async geocode(q) {
+      if (DEMO) return window.CarburantiDemo.geocode(q);
+      const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=it&limit=6&addressdetails=1&accept-language=it&q=" + encodeURIComponent(q);
+      const list = await getJSON(url, 10000);
+      return (list || []).map((x) => ({ name: placeName(x), detail: x.display_name, lat: +x.lat, lng: +x.lon }));
+    },
+    async reverse(lat, lng) {
+      if (DEMO) return "Posizione demo";
+      try {
+        const x = await getJSON(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&addressdetails=1&accept-language=it&lat=${lat}&lon=${lng}`, 8000);
+        return placeName(x);
+      } catch (_) { return ""; }
+    },
     async average() {
       if (DEMO) return window.CarburantiDemo.average();
       try { return await getJSON(`${CFG.DATA_URL || "data"}/average.json`, 8000); } catch (_) { return null; }
@@ -180,7 +212,7 @@
 
   function currentCenter() {
     if (settings.zone === "gps") return state.gps;
-    const z = (CFG.ZONES || []).find((z) => z.id === settings.zone) || (CFG.ZONES || [])[0];
+    const z = places.find((p) => p.id === settings.zone);
     return z ? { lat: z.lat, lng: z.lng, name: z.name } : null;
   }
 
@@ -220,8 +252,8 @@
   async function load() {
     const center = currentCenter();
     if (!center) {
-      if (settings.zone === "gps") return locate();
-      return;
+      settings.zone = "gps";
+      return locate();
     }
     if (!DEMO && !WORKER) { state.error = "noworker"; render(); return; }
 
@@ -265,8 +297,8 @@
       (err) => {
         state.loading = false;
         state.error = err.code === 1
-          ? "Permesso di posizione negato. Su iPhone: Impostazioni › Privacy › Localizzazione › Safari. Oppure scegli una zona."
-          : "Posizione non trovata. Riprova o scegli una zona.";
+          ? "Permesso di posizione negato. Su iPhone: Impostazioni › Privacy › Localizzazione › Safari. Oppure aggiungi un luogo con il tasto +."
+          : "Posizione non trovata. Riprova o aggiungi un luogo con il tasto +.";
         render();
       },
       { enableHighAccuracy: false, timeout: 12000, maximumAge: 120000 }
@@ -275,10 +307,10 @@
 
   // ---------- Render ----------
   function renderControls() {
-    const zones = [{ id: "gps", name: "Vicino a me" }].concat(CFG.ZONES || []);
+    const zones = [{ id: "gps", name: "Vicino a me" }].concat(places);
     $("#zones").innerHTML = zones.map((z) =>
       `<button role="radio" aria-checked="${settings.zone === z.id}" data-zone="${esc(z.id)}">${z.id === "gps" ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>' : ""}${esc(z.name)}</button>`
-    ).join("");
+    ).join("") + `<button class="chip-add${places.length ? "" : " wide"}" data-places aria-label="Gestisci i luoghi">${places.length ? "+" : "+ Aggiungi luogo"}</button>`;
     const segs = { "#seg-fuel": settings.fuel, "#seg-mode": settings.mode, "#seg-radius": settings.radius };
     for (const sel in segs) {
       $$(sel + " button").forEach((b) => {
@@ -424,7 +456,7 @@
         return;
       }
       if (state.error) {
-        el.innerHTML = `<div class="card state err"><h2>Non riesco a caricare i prezzi</h2><p>${esc(state.error)}</p><button class="btn" data-retry>Riprova</button></div>`;
+        el.innerHTML = `<div class="card state err"><h2>Non riesco a caricare i prezzi</h2><p>${esc(state.error)}</p><button class="btn" data-retry>Riprova</button>${settings.zone === "gps" ? ' <button class="btn" data-places>Aggiungi un luogo</button>' : ""}</div>`;
         return;
       }
       if (all.length) {
@@ -698,6 +730,75 @@
     });
   }
 
+  // ---------- Luoghi ----------
+  let placeResults = [];
+  function placesHTML(msg) {
+    const list = places.length
+      ? `<ul class="places">${places.map((p, i) => `<li>
+          <button class="pl-name" data-zone="${esc(p.id)}">${esc(p.name)}</button>
+          <span class="pl-btns">
+            ${i > 0 ? `<button class="icon-btn" data-place-up="${i}" aria-label="Sposta su ${esc(p.name)}">↑</button>` : ""}
+            <button class="icon-btn" data-place-rename="${i}" aria-label="Rinomina ${esc(p.name)}">✎</button>
+            <button class="icon-btn" data-place-del="${i}" aria-label="Elimina ${esc(p.name)}">✕</button>
+          </span></li>`).join("")}</ul>`
+      : `<p class="muted">Nessun luogo salvato. Aggiungi i posti dove fai spesso benzina: casa, lavoro, il paese dei tuoi.</p>`;
+    const results = placeResults.length
+      ? `<ul class="results">${placeResults.map((r, i) => `<li><button data-place-add="${i}"><strong>${esc(r.name)}</strong><span class="muted small">${esc(r.detail || "")}</span></button></li>`).join("")}</ul>`
+      : "";
+    return `<header class="sh-head"><h2 id="sheet-title">Luoghi</h2><p class="muted">Scegli i posti dove controlli spesso i prezzi.</p></header>
+      <section>
+        <form id="place-form" class="search" autocomplete="off">
+          <input id="place-q" type="search" placeholder="Comune o indirizzo" enterkeyhint="search" aria-label="Cerca un luogo">
+          <button class="btn primary" type="submit">Cerca</button>
+        </form>
+        ${msg ? `<p class="muted small" role="status">${msg}</p>` : ""}
+        ${results}
+        <button class="btn here" data-place-here>Salva la mia posizione attuale</button>
+      </section>
+      <section><h3>I tuoi luoghi</h3>${list}</section>
+      <p class="muted small">La ricerca dei luoghi usa OpenStreetMap (Nominatim). I luoghi restano solo su questo dispositivo.</p>`;
+  }
+  function openPlaces(msg) {
+    sheetReq++;
+    openSheet(placesHTML(msg));
+    const f = $("#place-form");
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const q = $("#place-q").value.trim();
+      if (q.length < 2) return;
+      openPlaces("Cerco…");
+      $("#place-q").value = q;
+      try {
+        placeResults = await api.geocode(q);
+        openPlaces(placeResults.length ? "" : "Nessun risultato. Prova con il nome del comune.");
+      } catch (err) {
+        placeResults = [];
+        openPlaces("Ricerca non riuscita: " + esc(err.message || err));
+      }
+      $("#place-q").value = q;
+    });
+  }
+  function addPlace(p) {
+    const place = { id: "p" + Date.now().toString(36), name: p.name || "Luogo", lat: +p.lat, lng: +p.lng };
+    places.push(place);
+    savePlaces();
+    placeResults = [];
+    settings.zone = place.id; saveSettings();
+    closeSheet();
+    load();
+  }
+  function saveHere() {
+    if (!navigator.geolocation) { openPlaces("La posizione non è disponibile su questo dispositivo."); return; }
+    openPlaces("Cerco la tua posizione…");
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      const guess = (await api.reverse(lat, lng)) || "La mia posizione";
+      const name = window.prompt("Nome del luogo", guess);
+      if (name === null) { openPlaces(); return; }
+      addPlace({ name: name.trim() || guess, lat, lng });
+    }, () => openPlaces("Posizione non disponibile: controlla i permessi di localizzazione."), { timeout: 12000, maximumAge: 60000 });
+  }
+
   // ---------- Eventi ----------
   function toggleFav(id) {
     id = String(id);
@@ -707,8 +808,29 @@
 
   document.addEventListener("click", (e) => {
     const t = e.target;
+    if (t.closest("[data-places]")) { placeResults = []; openPlaces(); return; }
+    const pAdd = t.closest("[data-place-add]");
+    if (pAdd) { addPlace(placeResults[+pAdd.dataset.placeAdd]); return; }
+    if (t.closest("[data-place-here]")) { saveHere(); return; }
+    const pUp = t.closest("[data-place-up]");
+    if (pUp) { const i = +pUp.dataset.placeUp; [places[i - 1], places[i]] = [places[i], places[i - 1]]; savePlaces(); render(); openPlaces(); return; }
+    const pRen = t.closest("[data-place-rename]");
+    if (pRen) {
+      const p = places[+pRen.dataset.placeRename];
+      const name = window.prompt("Nuovo nome", p.name);
+      if (name && name.trim()) { p.name = name.trim(); savePlaces(); render(); }
+      openPlaces(); return;
+    }
+    const pDel = t.closest("[data-place-del]");
+    if (pDel) {
+      const [p] = places.splice(+pDel.dataset.placeDel, 1);
+      savePlaces();
+      if (settings.zone === p.id) { settings.zone = "gps"; saveSettings(); locate(); } else render();
+      openPlaces(); return;
+    }
     const zone = t.closest("[data-zone]");
     if (zone) {
+      if (zone.closest("#sheet")) closeSheet();
       settings.zone = zone.dataset.zone; saveSettings();
       if (settings.zone === "gps") locate(); else load();
       return;

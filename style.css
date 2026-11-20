@@ -90,24 +90,29 @@ a { color: var(--accent); }
   border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 15px;
 }
 .chips button svg { width: 16px; height: 16px; }
+.chips .chip-add { border-style: dashed; color: var(--accent); background: transparent; font-size: 18px; padding: 0 14px; }
+.chips .chip-add.wide { font-size: 15px; }
 .chips button[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
 /* ---------- Main ---------- */
-main { max-width: 640px; margin: 0 auto; padding: 12px max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left)); }
+main { max-width: 640px; margin: 0 auto; overflow-x: clip; padding: 12px max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left)); }
 .controls { display: grid; gap: 8px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
-.seg { display: flex; background: var(--surface-2); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg { display: flex; min-width: 0; background: var(--surface-2); border-radius: 12px; padding: 3px; gap: 2px; }
 .seg button {
   flex: 1; border: 0; background: transparent; height: 38px; border-radius: 9px;
-  font-weight: 600; font-size: 15px; color: var(--ink-2); padding: 0 6px; white-space: nowrap;
+  font-weight: 600; font-size: 15px; color: var(--ink-2); padding: 0 4px; white-space: nowrap;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .seg button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
-.seg-sm { flex: 1; min-width: 150px; }
+.seg-sm { flex: 1 1 150px; }
+#seg-mode { flex: 1 1 120px; }
+#seg-radius { flex: 1.4 1 180px; }
 .seg-sm button { height: 34px; font-size: 14px; }
-.row-filters { flex-wrap: nowrap; }
-.select { flex: 1; min-width: 0; position: relative; }
+.row-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; }
+.select { min-width: 0; position: relative; }
 .select select {
-  width: 100%; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
+  width: 100%; min-width: 0; max-width: 100%; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
   padding: 0 28px 0 10px; font-size: 15px; -webkit-appearance: none; appearance: none; text-overflow: ellipsis;
 }
 .select::after { content: ""; position: absolute; right: 11px; top: 15px; width: 7px; height: 7px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(45deg); pointer-events: none; }
@@ -127,7 +132,7 @@ main { max-width: 640px; margin: 0 auto; padding: 12px max(16px, env(safe-area-i
 
 /* ---------- Riepilogo ---------- */
 .sum { padding: 14px 16px; }
-.sum-top { display: grid; gap: 10px; }
+.sum-top { display: grid; gap: 10px; min-width: 0; }
 .eyebrow { font-size: 13px; color: var(--muted); font-weight: 600; }
 .sum-best { border: 0; background: none; padding: 0; text-align: left; display: block; color: var(--good); }
 .sum-best .big { font-size: 44px; font-weight: 750; letter-spacing: -.02em; line-height: 1.05; }
@@ -146,7 +151,7 @@ main { max-width: 640px; margin: 0 auto; padding: 12px max(16px, env(safe-area-i
 
 /* ---------- Scheda impianto ---------- */
 .st {
-  display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center;
   padding: 12px 12px 12px 14px; cursor: pointer;
 }
 .st:active { background: var(--surface-2); }
@@ -269,3 +274,14 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-
   .st-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
   .sum-best .big { font-size: 38px; }
 }
+
+/* ---------- Luoghi ---------- */
+.search { display: flex; gap: 8px; }
+.search input { flex: 1; min-width: 0; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); padding: 0 12px; font-size: 17px; }
+.btn.here { width: 100%; margin-top: 10px; }
+.results, .places { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
+.results button { width: 100%; text-align: left; display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.places li { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; border-radius: 12px; background: var(--surface-2); }
+.pl-name { flex: 1; min-width: 0; text-align: left; border: 0; background: none; font-weight: 650; padding: 8px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-btns { display: flex; flex: none; }
+.pl-btns .icon-btn { width: 36px; height: 36px; font-size: 16px; }

@@ -197,5 +197,17 @@
     return { updated: new Date().toISOString(), days: out };
   }
 
-  window.CarburantiDemo = { search, station, history, average };
+  const TOWNS = [
+    ["Monselice (PD)", 45.2414, 11.7497], ["Padova (PD)", 45.4064, 11.8768], ["Este (PD)", 45.2283, 11.6563],
+    ["Abano Terme (PD)", 45.3605, 11.7886], ["Rovigo (RO)", 45.0698, 11.7902], ["Vicenza (VI)", 45.5455, 11.5354],
+    ["Venezia (VE)", 45.4408, 12.3155], ["Verona (VR)", 45.4384, 10.9916], ["Battaglia Terme (PD)", 45.2894, 11.7811],
+  ];
+  async function geocode(q) {
+    await delay(300);
+    const s = q.toLowerCase();
+    return TOWNS.filter((t) => t[0].toLowerCase().includes(s))
+      .map(([name, lat, lng]) => ({ name, detail: name.replace(/ \(.*/, "") + ", Veneto, Italia (demo)", lat, lng }));
+  }
+
+  window.CarburantiDemo = { search, station, history, average, geocode };
 })();
