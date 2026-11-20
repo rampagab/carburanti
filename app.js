@@ -110,7 +110,11 @@
     const to = withTimeout(ms);
     try {
       const res = await fetch(url, { signal: to.signal });
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if (!res.ok) {
+        let msg = "HTTP " + res.status;
+        try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (_) { /* non JSON */ }
+        throw new Error(msg);
+      }
       return await res.json();
     } catch (e) {
       if (e.name === "AbortError") throw new Error("Il server non risponde (timeout)");
