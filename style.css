@@ -337,3 +337,75 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-
 .fuel-chips button { height: 32px; font-size: 14px; }
 .engines { max-height: 320px; overflow-y: auto; margin-top: 0; overscroll-behavior: contain; }
 .engines button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--accent-soft); }
+
+/* ---------- Menu in basso e pagine ---------- */
+main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+body:not([data-tab="prezzi"]) #zones, body:not([data-tab="prezzi"]) #btn-refresh { display: none; }
+body:not([data-tab="prezzi"]) .top { border-bottom-color: transparent; }
+.view { display: grid; gap: 12px; align-content: start; }
+.view[hidden] { display: none; }
+.view-title { margin: 0; font-size: 26px; letter-spacing: -.01em; }
+.back { justify-self: start; border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 16px; padding: 4px 0; }
+.btn.wide { width: 100%; }
+.btn.danger { color: var(--bad); }
+.group h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 8px 0 8px; }
+.group .btn { margin-top: 4px; }
+.card.pad { padding: 14px; }
+
+.tabbar {
+  position: fixed; z-index: 6; left: 0; right: 0; bottom: 0;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  padding: 6px max(8px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
+  border-top: 1px solid var(--line);
+}
+.tabbar a { display: grid; justify-items: center; gap: 2px; padding: 4px 0; color: var(--muted); text-decoration: none; font-size: 11px; font-weight: 600; -webkit-tap-highlight-color: transparent; }
+.tabbar .ti { display: grid; place-items: center; width: 56px; height: 28px; border-radius: 14px; transition: background .15s; }
+.tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tabbar a[aria-current="page"] { color: var(--accent); }
+
+/* ---------- Spese ---------- */
+.glist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.gitem { width: 100%; text-align: left; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 14px 16px; cursor: pointer; }
+.gitem .muted { grid-column: 1; }
+.gtot { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-weight: 750; font-size: 18px; font-variant-numeric: tabular-nums; }
+.bal { list-style: none; margin: 0; padding: 0; }
+.bal li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.bal strong { font-variant-numeric: tabular-nums; }
+.bal .pos { color: var(--good); }
+.bal .neg { color: var(--bad); }
+.pl-name.exp { display: grid; white-space: normal; cursor: default; }
+.amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.checks { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.form .field input:not([type=checkbox]), .form .field select { width: 100%; }
+#trip-form .linkish { justify-self: start; padding: 0; }
+
+/* ---------- Android (Material 3) ---------- */
+html.android body { font-family: Roboto, "Google Sans", "Segoe UI", system-ui, sans-serif; }
+html.android .top h1 { font-size: 22px; font-weight: 500; }
+html.android .card { border-radius: 12px; box-shadow: none; }
+html.android .btn { border-radius: 20px; font-weight: 500; letter-spacing: .01em; }
+html.android .btn.primary { box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+html.android .seg { background: transparent; border: 1px solid var(--line); border-radius: 20px; padding: 0; gap: 0; overflow: hidden; }
+html.android .seg button { border-radius: 0; height: 40px; font-weight: 500; }
+html.android .seg button + button { border-left: 1px solid var(--line); }
+html.android .seg button[aria-checked="true"] { background: var(--accent-soft); color: var(--ink); box-shadow: none; }
+html.android .chips button { border-radius: 8px; font-weight: 500; }
+html.android .select select, html.android .toggle { border-radius: 8px; }
+html.android .sheet { border-radius: 28px 28px 0 0; }
+html.android .tabbar { background: var(--surface-2); -webkit-backdrop-filter: none; backdrop-filter: none; border-top: 0; padding-top: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+html.android .tabbar a { font-size: 12px; font-weight: 500; color: var(--ink-2); gap: 4px; }
+html.android .tabbar .ti { width: 64px; height: 32px; border-radius: 16px; }
+html.android .tabbar a[aria-current="page"] { color: var(--ink); }
+html.android .tabbar a[aria-current="page"] .ti { background: var(--accent-soft); }
+html.android .back { font-weight: 500; }
+
+/* ---------- iOS ---------- */
+html.ios .tabbar a { font-size: 10px; font-weight: 500; }
+html.ios .tabbar .ti { height: 26px; }
+
+@media (min-width: 700px) {
+  .tabbar { left: 50%; right: auto; transform: translateX(-50%); width: 560px; bottom: 12px; border: 1px solid var(--line); border-radius: 22px; padding-bottom: 6px; }
+}
+.view > p { margin: 0; }

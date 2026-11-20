@@ -495,7 +495,7 @@
           ${car ? "" : `<div><dt>Impianti</dt><dd>${rows.length}</dd></div>`}
         </dl>
       </div>
-      ${car ? `<div class="car-line"><strong>${esc(car.name)}</strong>: ${nf2.format(car.cons / 100 * min * 100)} € ogni 100 km al prezzo migliore.<br><span class="muted">Sulle schede: quanto risparmi sul pieno rispetto al distributore più vicino, già tolto il carburante per arrivarci.</span></div>` : ""}
+      ${car ? `<div class="car-line"><strong>${esc(car.name)}</strong>: ${nf2.format(car.cons * min)} €/100 km · «netti» = rispetto al più vicino, tolta la strada</div>` : ""}
       ${trend}
       <div class="sum-foot muted">${esc(center ? center.name : "")} · raggio ${settings.radius} km${car ? " · " + rows.length + " impianti" : ""}${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
     </div>`;
@@ -535,7 +535,7 @@
         <button class="star" data-fav="${esc(s.id)}" aria-pressed="${fav}" aria-label="${fav ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
         </button>
-        <a class="go" href="${mapsUrl(s)}" target="_blank" rel="noopener" data-go aria-label="Portami lì">
+        <a class="go" href="${mapsUrl(s)}" target="_blank" rel="noopener" data-golink aria-label="Portami lì">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l18-8-8 18-2-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Vai</span>
         </a>
       </div>
@@ -801,37 +801,38 @@
     await Promise.all([pD, pH]);
   }
 
-  // ---------- Impostazioni ----------
-  function openSettings() {
-    sheetReq++;
+  // ---------- Pagine ----------
+  function showView(name, html) { const el = $("#view-" + name); if (el) el.innerHTML = html; }
+
+  function renderAuto() {
+    const u = (c) => (+c.fuel === 3 ? "kg" : "L");
     const carRow = (c) => `<li>
         <button class="pl-name car-pick" data-car-use="${esc(c.id)}" aria-pressed="${c.id === activeCarId}">
           <span class="radio" aria-hidden="true"></span><span><strong>${esc(c.name)}</strong>
-          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(100 / c.cons)} km/${+c.fuel === 3 ? "kg" : "L"} ${c.realKml || !c.declL100 ? "reali" : "(dichiarato +" + gapFor(c) * 100 + "%)"} · serbatoio ${nf1.format(c.tank).replace(",0", "")}</span></span></button>
+          <span class="muted small">${esc(FUELS[c.fuel])} · ${nf1.format(100 / c.cons)} km/${u(c)}${c.realKml || !c.declL100 ? "" : " (stima)"} · ${nf1.format(c.tank).replace(",0", "")} ${u(c)}</span></span></button>
         <span class="pl-btns"><button class="icon-btn" data-car-edit="${esc(c.id)}" aria-label="Modifica ${esc(c.name)}">✎</button>
         <button class="icon-btn" data-car-del="${esc(c.id)}" aria-label="Elimina ${esc(c.name)}">✕</button></span></li>`;
-    openSheet(`<header class="sh-head"><h2 id="sheet-title">Impostazioni</h2></header>
-      <section>
-        <h3>Le tue auto</h3>
-        ${cars.length ? `<ul class="places cars">${cars.map(carRow).join("")}
-          <li><button class="pl-name car-pick" data-car-use="" aria-pressed="${!activeCar()}"><span class="radio" aria-hidden="true"></span><span>Nessuna auto</span></button></li></ul>`
-          : `<p class="muted small">Aggiungi la tua auto: l'app calcola il costo del pieno, quanto spendi ogni 100 km e se conviene andare a un distributore più lontano.</p>`}
-        <button class="btn here" data-car-new>+ Aggiungi auto</button>
-      </section>
-      <section>
-        <label class="field"><span>Litri (o kg) del pieno, senza auto</span>
+    showView("auto", `
+      ${cars.length ? `<ul class="places cars">${cars.map(carRow).join("")}
+        <li><button class="pl-name car-pick" data-car-use="" aria-pressed="${!activeCar()}"><span class="radio" aria-hidden="true"></span><span>Nessuna auto</span></button></li></ul>`
+        : `<div class="card state"><h2>Nessuna auto</h2><p>Aggiungila per vedere costo del pieno e risparmio netto.</p></div>`}
+      <button class="btn primary wide" data-car-new>+ Aggiungi auto</button>`);
+  }
+
+  function renderAltro() {
+    showView("altro", `
+      <section class="group">
+        <label class="field"><span>Litri del pieno (senza auto)</span>
           <input id="in-liters" type="number" inputmode="numeric" min="5" max="200" step="1" value="${settings.liters}"></label>
-        <p class="muted small">Serve per il risparmio nel riepilogo quando non c'è un'auto per il carburante scelto.</p>
       </section>
-      <section>
+      <section class="group">
         <h3>Dati</h3>
-        <p class="muted small">Fonte: ${DEMO ? "modalità demo (dati finti)" : "Ministero delle Imprese e del Made in Italy – Osservatorio prezzi carburanti (licenza IODL 2.0)"}.
+        <p class="muted small">${DEMO ? "Modalità demo: dati finti." : "Prezzi MIMIT (IODL 2.0) · Auto EEA (CC BY 4.0) · Mappe OpenStreetMap, OSRM."}
         ${state.average && state.average.updated ? `<br>Storico aggiornato ${esc(ago(state.average.updated).text)}.` : ""}</p>
-        <button class="btn" id="btn-clear-cache">Svuota i dati salvati offline</button>
-        <p class="muted small">Preferiti salvati: ${favs.size}.</p>
+        <button class="btn" id="btn-clear-cache">Svuota dati offline</button>
       </section>
-      <section>
-        <p class="muted small">${DEMO ? '<a href="./">Esci dalla demo</a>' : '<a href="?demo=1">Apri la modalità demo</a>'}</p>
+      <section class="group">
+        <p class="muted small">${DEMO ? '<a href="./">Esci dalla demo</a>' : '<a href="?demo=1">Modalità demo</a>'} · <a href="https://github.com/rampagab/carburanti" target="_blank" rel="noopener">Codice</a></p>
       </section>`);
     $("#in-liters").addEventListener("change", (e) => {
       const v = Math.round(+e.target.value);
@@ -840,7 +841,7 @@
     });
     $("#btn-clear-cache").addEventListener("click", (e) => {
       store.clearCache();
-      e.target.textContent = "Dati offline eliminati";
+      e.target.textContent = "Fatto";
       e.target.disabled = true;
     });
   }
@@ -869,44 +870,44 @@
     // Auto salvate prima di questa versione: il loro consumo era già quello reale.
     const real = c.realKml || (c.cons && !c.declL100 ? Math.round(1000 / c.cons) / 10 : "");
     const u = +c.fuel === 3 ? "kg" : "L";
-    openSheet(`<header class="sh-head"><h2 id="sheet-title">${car ? "Modifica auto" : "Nuova auto"}</h2></header>
+    window.scrollTo(0, 0);
+    showView("auto", `<button class="back" data-go="auto">‹ Auto</button><h2 class="view-title">${car ? "Modifica auto" : "Nuova auto"}</h2>
       <form id="car-form" class="form" novalidate data-id="${esc(car ? car.id : "")}" data-nedc="${c.nedc ? 1 : ""}" autocomplete="off">
         <fieldset class="box cfg">
           <legend>Trova la tua auto</legend>
           <label class="field"><span>Marca</span><select name="cfgMake" disabled><option value="">Carico le marche…</option></select></label>
           <div id="cfg-model"></div>
           <div id="cfg-engines"></div>
-          <p class="muted small">Dati ufficiali EEA delle auto immatricolate in Italia dal 2012. Non trovi la tua? Compila i campi qui sotto.</p>
+          <p class="muted small">Auto immatricolate in Italia dal 2012. Non c'è? Compila sotto.</p>
         </fieldset>
         <label class="field"><span>Nome</span><input name="name" required maxlength="40" placeholder="Es. Panda, Golf, auto di lavoro" value="${esc(c.name)}"></label>
         <label class="field"><span>Carburante</span><select name="fuel">${[2, 1, 4, 3].map((f) => `<option value="${f}"${+c.fuel === f ? " selected" : ""}>${FUELS[f]}</option>`).join("")}</select></label>
 
         <fieldset class="box">
           <legend>Consumo reale <span class="tag">consigliato</span></legend>
-          <label class="field"><span>Quanti km fai davvero con 1 ${u}</span>
+          <label class="field"><span>km con 1 ${u}</span>
             <div class="inline"><input name="real" type="number" inputmode="decimal" step="0.1" min="3" max="100" value="${real}" placeholder="Es. 17,5"><span class="unit">km/${u}</span></div></label>
           <details class="calc"${real ? "" : " open"}>
-            <summary>Calcolalo da un pieno all'altro</summary>
-            <p class="muted small">Fai il pieno e azzera il contachilometri parziale. Al pieno successivo scrivi i km percorsi e i litri messi.</p>
+            <summary>Calcola da un pieno all'altro</summary>
+            <p class="muted small">Pieno, azzera il parziale; al pieno dopo: km e litri.</p>
             <div class="inline"><input name="ckm" type="number" inputmode="decimal" step="1" min="1" placeholder="km percorsi" aria-label="km percorsi">
               <input name="cl" type="number" inputmode="decimal" step="0.01" min="1" placeholder="litri messi" aria-label="litri messi">
               <button type="button" class="btn" data-car-calc>Calcola</button></div>
-            <p class="muted small">Puoi anche usare la media del computer di bordo, se la ritieni affidabile.</p>
           </details>
         </fieldset>
 
         <fieldset class="box">
-          <legend>Consumo dichiarato dalla casa <span class="tag">facoltativo</span></legend>
+          <legend>Consumo dichiarato <span class="tag">facoltativo</span></legend>
           <div class="inline"><input name="decl" type="number" inputmode="decimal" step="0.1" min="1" max="100" value="${c.declL100 || ""}" aria-label="Consumo dichiarato">
             <select name="unit"><option value="l100">L/100 km</option><option value="kml">km/L</option></select></div>
-          <p class="muted small" id="decl-note">Usato solo se non inserisci quello reale, aumentato del ${gapFor(c) * 100}%: nella guida di tutti i giorni si consuma quasi sempre più del dato ufficiale.</p>
+          <p class="muted small" id="decl-note">Senza quello reale uso questo +${gapFor(c) * 100}%.</p>
         </fieldset>
 
-        <div class="field"><span>Non conosci i valori? Parti da uno tipico</span>
+        <div class="field"><span>Oppure valori tipici</span>
           <div class="preset-row"><button type="button" class="btn" data-preset="s">Piccola</button><button type="button" class="btn" data-preset="m">Media</button><button type="button" class="btn" data-preset="l">Grande / SUV</button></div></div>
         <label class="field"><span>Capienza serbatoio (${u})</span><input name="tank" type="number" inputmode="decimal" step="1" min="5" max="150" required value="${c.tank || ""}"></label>
         <p class="form-err" role="alert" hidden></p>
-        <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-settings>Annulla</button></div>
+        <div class="preset-row"><button class="btn primary" type="submit">Salva</button><button class="btn" type="button" data-go="auto">Annulla</button></div>
       </form>`);
     initConfigurator($("#car-form"), c);
   }
@@ -979,7 +980,7 @@
       form.dataset.nedc = v.nedc ? "1" : "";
       form.dataset.cfg = JSON.stringify({ make: selMake.value, model: m.m, engine: engineLabel(v) });
       const note = $("#decl-note", form);
-      if (note) note.textContent = `Dato ufficiale ${v.nedc ? "NEDC" : "WLTP"}. Usato solo se non inserisci quello reale, aumentato del ${(v.nedc ? DECLARED_GAP_NEDC : DECLARED_GAP) * 100}%: nella guida di tutti i giorni si consuma quasi sempre più del dato ufficiale.`;
+      if (note) note.textContent = `Dato ${v.nedc ? "NEDC" : "WLTP"}. Senza quello reale uso questo +${(v.nedc ? DECLARED_GAP_NEDC : DECLARED_GAP) * 100}%.`;
       $$("[data-cfg-engine]", form).forEach((b) => b.classList.toggle("on", b === eb));
       const real = form.real;
       (real.value ? form.tank : real).scrollIntoView({ block: "center", behavior: "smooth" });
@@ -1025,7 +1026,8 @@
     const i = cars.findIndex((x) => x.id === id);
     if (i >= 0) cars[i] = car; else cars.push(car);
     useCar(id);
-    openSettings();
+    renderAuto();
+    window.scrollTo(0, 0);
   }
 
   function useCar(id) {
@@ -1098,6 +1100,7 @@
     const toll = real >= 0 ? real : tollEst;
     const total = fuelCost + toll;
     const people = tripPrefs.people;
+    trip.last = { fuel: fuelCost, toll, total, to: trip.to.name, round: tripPrefs.roundTrip };
     const u = tripFuel() === 3 ? "kg" : "L";
     const h = Math.floor(minTot / 60), m = Math.round(minTot % 60);
     const from = trip.fromPoint, to = trip.to;
@@ -1115,10 +1118,10 @@
         <div><dt>Autostrada a pagamento</dt><dd>${nf1.format(mwTot)} km${r.roads.length ? " · " + esc(r.roads.join(", ")) : ""}</dd></div>
         <div><dt>Pedaggi ${real >= 0 ? "(importo reale)" : "(stima)"}</dt><dd>${nf2.format(toll)} €</dd></div>
       </dl>
-      <label class="field"><span>Importo reale dei pedaggi${tripPrefs.roundTrip ? " (andata e ritorno)" : ""}, se lo conosci</span>
+      <label class="field"><span>Pedaggi reali${tripPrefs.roundTrip ? " (A/R)" : ""}</span>
         <input id="toll-real" type="number" inputmode="decimal" step="0.1" min="0" value="${esc(trip.tollReal)}" placeholder="${nf2.format(tollEst).replace(",", ".")}"></label>
-      <a class="btn primary" href="${maps}" target="_blank" rel="noopener">Apri il percorso in Mappe</a>
-      <p class="muted small">Stima: km di autostrada a pagamento × ${nf3.format(tripPrefs.tollRate)} €/km. L'importo vero dipende dalle tratte e dai caselli: lo trovi sul sito di Autostrade per l'Italia o nelle app di navigazione. Le autostrade gratuite (A2, A19, A29, A90, A91) non sono conteggiate. Consumo: ${nf1.format(cons)} ${u}/100 km${car ? " (" + esc(car.name) + ")" : ""}.</p>
+      <div class="preset-row"><button type="button" class="btn primary" data-trip-split>Dividi la spesa</button><a class="btn" href="${maps}" target="_blank" rel="noopener">Apri in Mappe</a></div>
+      <p class="muted small">Pedaggi stimati: km a pagamento × ${nf3.format(tripPrefs.tollRate)} €/km.</p>
     </div>`;
   }
 
@@ -1132,8 +1135,7 @@
         ${places.length ? `<div class="preset-row">${places.map((p) => `<button type="button" class="btn small-btn" data-trip-to="${esc(p.id)}">${esc(p.name)}</button>`).join("")}</div>` : ""}
         ${trip.msg ? `<p class="muted small" role="status">${trip.msg}</p>` : ""}
         ${trip.results.length ? `<ul class="results">${trip.results.map((r, i) => `<li><button type="button" data-trip-pick="${i}"><strong>${esc(r.name)}</strong><span class="muted small">${esc(r.detail || "")}</span></button></li>`).join("")}</ul>` : ""}`;
-    return `<header class="sh-head"><h2 id="sheet-title">Viaggio</h2><p class="muted">Quanto costa un tragitto: carburante e pedaggi.</p></header>
-      <form id="trip-form" class="form" autocomplete="off">
+    return `<form id="trip-form" class="form" autocomplete="off">
         <label class="field"><span>Partenza</span><select name="from">
           <option value="gps">La mia posizione</option>${places.map((p) => `<option value="${esc(p.id)}"${trip.from === p.id ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
         <div class="field"><span>Arrivo</span>${dest}</div>
@@ -1142,25 +1144,23 @@
           <label class="check">Persone <input name="people" type="number" inputmode="numeric" min="1" max="9" value="${tripPrefs.people}"></label>
         </div>
         <div class="field"><span>Auto</span>${car
-          ? `<p class="car-sum"><strong>${esc(car.name)}</strong> · ${esc(FUELS[car.fuel])} · ${nf1.format(100 / car.cons)} km/${u} <button type="button" class="linkish" data-settings>cambia</button></p>`
+          ? `<p class="car-sum"><strong>${esc(car.name)}</strong> · ${esc(FUELS[car.fuel])} · ${nf1.format(100 / car.cons)} km/${u} <button type="button" class="linkish" data-go="auto">cambia</button></p>`
           : `<div class="inline"><input name="cons" type="number" inputmode="decimal" step="0.1" min="1" max="30" value="${tripPrefs.cons}" aria-label="Consumo"><span class="unit">${u}/100 km</span></div>
-             <p class="muted small">Oppure <button type="button" class="linkish" data-car-new>aggiungi la tua auto</button>.</p>`}</div>
+             <button type="button" class="linkish" data-car-new>+ aggiungi la tua auto</button>`}</div>
         <label class="field"><span>Prezzo ${esc(FUELS[fuel])} (€/${u})</span>
           <input name="price" type="number" inputmode="decimal" step="0.001" min="0.3" max="5" value="${esc(trip.price)}" placeholder="${defaultTripPrice().toFixed(3)}"></label>
-        <label class="field"><span>Pedaggio medio (€ per km di autostrada)</span>
+        <label class="field"><span>Pedaggio (€/km di autostrada)</span>
           <input name="toll" type="number" inputmode="decimal" step="0.001" min="0" max="1" value="${tripPrefs.tollRate}"></label>
         <p class="form-err" role="alert" hidden></p>
         <button class="btn primary" type="submit">Calcola</button>
       </form>
-      <div id="trip-out" aria-live="polite">${tripResultHTML()}</div>
-      <p class="muted small">Percorso calcolato con OSRM e ricerca con OpenStreetMap: ricevono solo i punti di partenza e arrivo.</p>`;
+      <div id="trip-out" aria-live="polite">${tripResultHTML()}</div>`;
   }
 
   function openTrip(keepScroll) {
-    sheetReq++;
-    const top = sheet.scrollTop;
-    openSheet(tripHTML());
-    if (keepScroll) sheet.scrollTop = top;
+    const y = window.scrollY;
+    showView("viaggio", tripHTML());
+    if (keepScroll) window.scrollTo(0, y);
     const real = $("#toll-real");
     if (real) real.addEventListener("change", (e) => { trip.tollReal = e.target.value; readTripForm(); openTrip(true); });
   }
@@ -1221,11 +1221,11 @@
             <button class="icon-btn" data-place-rename="${i}" aria-label="Rinomina ${esc(p.name)}">✎</button>
             <button class="icon-btn" data-place-del="${i}" aria-label="Elimina ${esc(p.name)}">✕</button>
           </span></li>`).join("")}</ul>`
-      : `<p class="muted">Nessun luogo salvato. Aggiungi i posti dove fai spesso benzina: casa, lavoro, il paese dei tuoi.</p>`;
+      : `<p class="muted">Nessun luogo salvato.</p>`;
     const results = placeResults.length
       ? `<ul class="results">${placeResults.map((r, i) => `<li><button data-place-add="${i}"><strong>${esc(r.name)}</strong><span class="muted small">${esc(r.detail || "")}</span></button></li>`).join("")}</ul>`
       : "";
-    return `<header class="sh-head"><h2 id="sheet-title">Luoghi</h2><p class="muted">Scegli i posti dove controlli spesso i prezzi.</p></header>
+    return `<header class="sh-head"><h2 id="sheet-title">Luoghi</h2></header>
       <section>
         <form id="place-form" class="search" autocomplete="off">
           <input id="place-q" type="search" placeholder="Comune o indirizzo" enterkeyhint="search" aria-label="Cerca un luogo">
@@ -1233,10 +1233,10 @@
         </form>
         ${msg ? `<p class="muted small" role="status">${msg}</p>` : ""}
         ${results}
-        <button class="btn here" data-place-here>Salva la mia posizione attuale</button>
+        <button class="btn here" data-place-here>Salva la posizione attuale</button>
       </section>
       <section><h3>I tuoi luoghi</h3>${list}</section>
-      <p class="muted small">La ricerca dei luoghi usa OpenStreetMap (Nominatim). I luoghi restano solo su questo dispositivo.</p>`;
+      <p class="muted small">Ricerca: OpenStreetMap. I luoghi restano su questo telefono.</p>`;
   }
   function openPlaces(msg) {
     sheetReq++;
@@ -1279,6 +1279,244 @@
     }, () => openPlaces("Posizione non disponibile: controlla i permessi di localizzazione."), { timeout: 12000, maximumAge: 60000 });
   }
 
+  // ---------- Spese di viaggio (stile Splitwise) ----------
+  // Tutto resta sul telefono; per condividere con gli amici si manda un link che contiene il viaggio.
+  let groups = store.get("groups", []);
+  if (!Array.isArray(groups)) groups = [];
+  const saveGroups = () => store.set("groups", groups);
+  const spese = { open: null, creating: false, adding: false, pending: null, msg: "" };
+  const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const eur = (cents) => nf2.format(cents / 100) + " €";
+  const personName = (g, id) => (g.people.find((x) => x.id === id) || { name: "?" }).name;
+
+  // Quota di ciascuno in centesimi (i centesimi avanzati vanno ai primi della lista).
+  function shares(e) {
+    const total = Math.round(e.amount * 100), n = e.split.length, out = {};
+    if (!n) return out;
+    const base = Math.floor(total / n);
+    let rem = total - base * n;
+    for (const id of e.split) { out[id] = base + (rem > 0 ? 1 : 0); rem--; }
+    return out;
+  }
+  function balances(g) {
+    const b = {};
+    g.people.forEach((p) => { b[p.id] = 0; });
+    for (const e of g.expenses) {
+      b[e.payer] = (b[e.payer] || 0) + Math.round(e.amount * 100);
+      const sh = shares(e);
+      for (const id in sh) b[id] = (b[id] || 0) - sh[id];
+    }
+    return b;
+  }
+  // Il minor numero di pagamenti per pareggiare: il più indebitato paga chi deve ricevere di più.
+  function settle(g) {
+    const b = balances(g);
+    const deb = Object.entries(b).filter(([, v]) => v < 0).map(([id, v]) => ({ id, v: -v })).sort((a, c) => c.v - a.v);
+    const cred = Object.entries(b).filter(([, v]) => v > 0).map(([id, v]) => ({ id, v })).sort((a, c) => c.v - a.v);
+    const out = [];
+    let i = 0, j = 0;
+    while (i < deb.length && j < cred.length) {
+      const x = Math.min(deb[i].v, cred[j].v);
+      if (x > 0) out.push({ from: deb[i].id, to: cred[j].id, cents: x });
+      deb[i].v -= x; cred[j].v -= x;
+      if (!deb[i].v) i++;
+      if (!cred[j].v) j++;
+    }
+    return out;
+  }
+  const groupTotal = (g) => g.expenses.reduce((a, e) => a + Math.round(e.amount * 100), 0);
+
+  function renderSpese() {
+    const g = groups.find((x) => x.id === spese.open);
+    if (g) return showView("spese", groupHTML(g));
+    const pending = spese.pending ? `<div class="notice">Scegli il viaggio per aggiungere <strong>${eur(Math.round(spese.pending.amount * 100))}</strong>. <button class="linkish" data-sp-cancel>Annulla</button></div>` : "";
+    const form = spese.creating || !groups.length ? `<form id="sp-new" class="card form pad" autocomplete="off">
+        <label class="field"><span>Nome del viaggio</span><input name="name" maxlength="40" required placeholder="Es. Weekend a Verona"></label>
+        <label class="field"><span>Chi c'è (separati da virgola)</span><input name="people" required placeholder="Io, Marco, Giulia"></label>
+        <p class="form-err" role="alert" hidden></p>
+        <div class="preset-row"><button class="btn primary" type="submit">Crea</button>${groups.length ? '<button class="btn" type="button" data-sp-nocreate>Annulla</button>' : ""}</div>
+      </form>` : "";
+    showView("spese", `${pending}
+      ${groups.length ? `<ul class="glist">${groups.map((x) => `<li><button class="card gitem" data-sp-open="${esc(x.id)}">
+        <strong>${esc(x.name)}</strong><span class="muted small">${x.people.length} persone · ${x.expenses.length} spese</span>
+        <span class="gtot">${eur(groupTotal(x))}</span></button></li>`).join("")}</ul>` : ""}
+      ${form}
+      ${groups.length && !spese.creating ? '<button class="btn primary wide" data-sp-create>+ Nuovo viaggio</button>' : ""}`);
+  }
+
+  function groupHTML(g) {
+    const b = balances(g);
+    const plan = settle(g);
+    const total = groupTotal(g);
+    const exp = g.expenses.slice().sort((a, c) => (c.date || "").localeCompare(a.date || ""));
+    const pre = spese.pending || {};
+    const addForm = spese.adding || spese.pending ? `<form id="sp-exp" class="card form pad" autocomplete="off">
+        <label class="field"><span>Cosa</span><input name="desc" maxlength="60" required value="${esc(pre.desc || "")}" placeholder="Es. Benzina, pedaggio, pranzo"></label>
+        <label class="field"><span>Importo (€)</span><input name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${pre.amount ? (Math.round(pre.amount * 100) / 100).toFixed(2) : ""}"></label>
+        <label class="field"><span>Ha pagato</span><select name="payer">${g.people.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label>
+        <fieldset class="box"><legend>Diviso tra</legend><div class="checks">${g.people.map((p) => `<label class="check"><input type="checkbox" name="split" value="${esc(p.id)}" checked> ${esc(p.name)}</label>`).join("")}</div></fieldset>
+        <p class="form-err" role="alert" hidden></p>
+        <div class="preset-row"><button class="btn primary" type="submit">Aggiungi</button><button class="btn" type="button" data-sp-noadd>Annulla</button></div>
+      </form>` : `<button class="btn primary wide" data-sp-add>+ Spesa</button>`;
+    return `<button class="back" data-sp-back>‹ Viaggi</button>
+      <h2 class="view-title">${esc(g.name)}</h2>
+      <p class="muted">Totale ${eur(total)} · ${g.people.length} persone</p>
+      ${addForm}
+      <section class="group">
+        <h3>Saldi</h3>
+        <ul class="bal">${g.people.map((p) => { const v = b[p.id] || 0; return `<li><span>${esc(p.name)}</span><strong class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : v < 0 ? "−" : ""}${eur(Math.abs(v))}</strong></li>`; }).join("")}</ul>
+      </section>
+      <section class="group">
+        <h3>Per pareggiare</h3>
+        ${plan.length ? `<ul class="bal">${plan.map((x) => `<li><span>${esc(personName(g, x.from))} → ${esc(personName(g, x.to))}</span><strong>${eur(x.cents)}</strong></li>`).join("")}</ul>` : `<p class="muted">Siete pari.</p>`}
+      </section>
+      <section class="group">
+        <h3>Spese</h3>
+        ${exp.length ? `<ul class="places">${exp.map((e) => `<li><span class="pl-name exp"><strong>${esc(e.desc)}</strong>
+          <span class="muted small">${esc(personName(g, e.payer))} · ${e.split.length === g.people.length ? "tutti" : e.split.map((id) => esc(personName(g, id))).join(", ")}</span></span>
+          <strong class="amt">${eur(Math.round(e.amount * 100))}</strong>
+          <button class="icon-btn" data-sp-del="${esc(e.id)}" aria-label="Elimina ${esc(e.desc)}">✕</button></li>`).join("")}</ul>` : `<p class="muted">Ancora nessuna spesa.</p>`}
+      </section>
+      ${spese.msg ? `<p class="muted small" role="status">${esc(spese.msg)}</p>` : ""}
+      <div class="preset-row">
+        <button class="btn" data-sp-share>Condividi</button>
+        <button class="btn" data-sp-person>+ Persona</button>
+        <button class="btn danger" data-sp-remove>Elimina</button>
+      </div>`;
+  }
+
+  function packGroup(g) {
+    const json = JSON.stringify({ v: 1, id: g.id, name: g.name, people: g.people, expenses: g.expenses });
+    return btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function unpackGroup(str) {
+    const json = decodeURIComponent(escape(atob(str.replace(/-/g, "+").replace(/_/g, "/"))));
+    const d = JSON.parse(json);
+    const clean = (t, n) => String(t == null ? "" : t).slice(0, n);
+    if (!d || !Array.isArray(d.people) || !Array.isArray(d.expenses)) throw new Error("Link non valido");
+    const people = d.people.slice(0, 30).map((p) => ({ id: clean(p.id, 20), name: clean(p.name, 30) })).filter((p) => p.id && p.name);
+    const ids = new Set(people.map((p) => p.id));
+    const expenses = d.expenses.slice(0, 500).map((e) => ({
+      id: clean(e.id, 24), desc: clean(e.desc, 60), amount: Math.round(+e.amount * 100) / 100, payer: clean(e.payer, 20),
+      split: (Array.isArray(e.split) ? e.split : []).map((x) => clean(x, 20)).filter((x) => ids.has(x)), date: clean(e.date, 30),
+    })).filter((e) => e.id && e.amount > 0 && e.amount < 1e6 && ids.has(e.payer) && e.split.length);
+    return { id: clean(d.id, 24) || uid("g"), name: clean(d.name, 40) || "Viaggio", people, expenses };
+  }
+  function shareGroup(g) {
+    const link = location.origin + location.pathname + "#spese/import/" + packGroup(g);
+    const plan = settle(g);
+    const text = `${g.name} – totale ${eur(groupTotal(g))}\n` +
+      (plan.length ? plan.map((x) => `${personName(g, x.from)} → ${personName(g, x.to)}: ${eur(x.cents)}`).join("\n") : "Siamo pari.") +
+      `\n\nApri e aggiorna nell'app:`;
+    if (navigator.share) {
+      navigator.share({ title: g.name, text, url: link }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text + " " + link).then(() => { spese.msg = "Riepilogo e link copiati."; renderSpese(); }, () => {});
+    } else window.prompt("Copia il link", link);
+  }
+  function importGroup(data) {
+    let g;
+    try { g = unpackGroup(data); } catch (_) { window.alert("Link del viaggio non valido."); return; }
+    const i = groups.findIndex((x) => x.id === g.id);
+    const ok = window.confirm(i >= 0 ? `Aggiornare «${g.name}» con i dati ricevuti?` : `Aggiungere il viaggio «${g.name}» (${g.people.length} persone, ${g.expenses.length} spese)?`);
+    if (!ok) return;
+    if (i >= 0) groups[i] = g; else groups.unshift(g);
+    saveGroups();
+    spese.open = g.id;
+  }
+
+  function spesePrefillFromTrip() {
+    const l = trip.last;
+    if (!l) return;
+    spese.pending = { desc: `${l.round ? "A/R " : ""}${l.to}: carburante e pedaggi`.slice(0, 60), amount: l.total };
+    spese.adding = false;
+    spese.open = groups.length === 1 ? groups[0].id : null;
+    go("spese");
+  }
+
+  function speseClick(t) {
+    if (t.closest("[data-sp-create]")) { spese.creating = true; renderSpese(); return true; }
+    if (t.closest("[data-sp-nocreate]")) { spese.creating = false; renderSpese(); return true; }
+    if (t.closest("[data-sp-cancel]")) { spese.pending = null; renderSpese(); return true; }
+    const open = t.closest("[data-sp-open]");
+    if (open) { spese.open = open.dataset.spOpen; spese.msg = ""; renderSpese(); window.scrollTo(0, 0); return true; }
+    if (t.closest("[data-sp-back]")) { spese.open = null; spese.adding = false; spese.msg = ""; renderSpese(); return true; }
+    const g = groups.find((x) => x.id === spese.open);
+    if (!g) return false;
+    if (t.closest("[data-sp-add]")) { spese.adding = true; renderSpese(); const d = $("#sp-exp [name=desc]"); if (d) d.focus(); return true; }
+    if (t.closest("[data-sp-noadd]")) { spese.adding = false; spese.pending = null; renderSpese(); return true; }
+    if (t.closest("[data-sp-share]")) { shareGroup(g); return true; }
+    if (t.closest("[data-sp-person]")) {
+      const n = (window.prompt("Nome") || "").trim().slice(0, 30);
+      if (n) { g.people.push({ id: uid("p"), name: n }); saveGroups(); renderSpese(); }
+      return true;
+    }
+    if (t.closest("[data-sp-remove]")) {
+      if (window.confirm(`Eliminare «${g.name}» e tutte le sue spese?`)) { groups = groups.filter((x) => x !== g); saveGroups(); spese.open = null; renderSpese(); }
+      return true;
+    }
+    const del = t.closest("[data-sp-del]");
+    if (del) { g.expenses = g.expenses.filter((e) => e.id !== del.dataset.spDel); saveGroups(); renderSpese(); return true; }
+    return false;
+  }
+
+  function speseSubmit(form) {
+    const err = $(".form-err", form);
+    const fail = (m) => { err.hidden = false; err.textContent = m; };
+    if (form.id === "sp-new") {
+      const name = form.name.value.trim();
+      const people = [...new Set(form.people.value.split(/[,;\n]/).map((x) => x.trim().slice(0, 30)).filter(Boolean))];
+      if (!name) return fail("Scrivi un nome.");
+      if (people.length < 2) return fail("Servono almeno 2 persone.");
+      const g = { id: uid("g"), name: name.slice(0, 40), people: people.map((n) => ({ id: uid("p"), name: n })), expenses: [] };
+      groups.unshift(g); saveGroups();
+      spese.creating = false; spese.open = g.id;
+      renderSpese(); window.scrollTo(0, 0);
+      return;
+    }
+    if (form.id === "sp-exp") {
+      const g = groups.find((x) => x.id === spese.open);
+      const amount = Math.round(num(form.amount.value) * 100) / 100;
+      const split = $$("[name=split]", form).filter((c) => c.checked).map((c) => c.value);
+      const desc = form.desc.value.trim();
+      if (!desc) return fail("Scrivi cosa avete pagato.");
+      if (!(amount > 0 && amount < 1e6)) return fail("Importo non valido.");
+      if (!split.length) return fail("Scegli almeno una persona.");
+      g.expenses.push({ id: uid("e"), desc: desc.slice(0, 60), amount, payer: form.payer.value, split, date: new Date().toISOString() });
+      saveGroups();
+      spese.adding = false; spese.pending = null;
+      renderSpese();
+    }
+  }
+
+  // ---------- Schede (menu in basso) ----------
+  const TABS = { prezzi: "Prezzi", viaggio: "Viaggio", spese: "Spese", auto: "Auto", altro: "Altro" };
+  let currentTab = "prezzi";
+  function go(name) {
+    if (location.hash === "#" + name) route();
+    else location.hash = name;
+  }
+  function route() {
+    const h = location.hash.replace(/^#/, "");
+    if (h.startsWith("spese/import/")) {
+      importGroup(h.slice("spese/import/".length));
+      history.replaceState(null, "", location.pathname + location.search + "#spese");
+    }
+    const name = TABS[h.split("/")[0]] ? h.split("/")[0] : "prezzi";
+    const changed = name !== currentTab;
+    currentTab = name;
+    document.body.dataset.tab = name;
+    for (const k in TABS) $("#view-" + k).hidden = k !== name;
+    $$(".tabbar a").forEach((a) => (a.dataset.tab === name ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
+    $("#title").textContent = TABS[name];
+    if (name === "viaggio") openTrip();
+    else if (name === "spese") renderSpese();
+    else if (name === "auto") renderAuto();
+    else if (name === "altro") renderAltro();
+    if (changed) window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", route);
+
   // ---------- Eventi ----------
   function toggleFav(id) {
     id = String(id);
@@ -1289,6 +1527,8 @@
   document.addEventListener("click", (e) => {
     const t = e.target;
     if (t.closest("[data-places]")) { placeResults = []; openPlaces(); return; }
+    if (t.closest("[data-trip-split]")) { spesePrefillFromTrip(); return; }
+    if (currentTab === "spese" && speseClick(t)) return;
     if (t.closest("[data-car-new]")) { openCarForm(null); return; }
     if (t.closest("[data-trip-search]")) { tripSearch(); return; }
     const tTo = t.closest("[data-trip-to]");
@@ -1296,9 +1536,10 @@
     const tPick = t.closest("[data-trip-pick]");
     if (tPick) { readTripForm(); trip.to = trip.results[+tPick.dataset.tripPick]; trip.results = []; trip.res = null; openTrip(true); return; }
     if (t.closest("[data-trip-clear]")) { readTripForm(); trip.to = null; trip.res = null; trip.tollReal = ""; openTrip(true); return; }
-    if (t.closest("[data-settings]")) { openSettings(); return; }
+    const goEl = t.closest("[data-go]");
+    if (goEl) { go(goEl.dataset.go); return; }
     const cUse = t.closest("[data-car-use]");
-    if (cUse) { useCar(cUse.dataset.carUse); openSettings(); return; }
+    if (cUse) { useCar(cUse.dataset.carUse); renderAuto(); return; }
     const cEdit = t.closest("[data-car-edit]");
     if (cEdit) { openCarForm(cars.find((c) => c.id === cEdit.dataset.carEdit)); return; }
     const cDel = t.closest("[data-car-del]");
@@ -1309,7 +1550,7 @@
         if (activeCarId === c.id) activeCarId = "";
         saveCars(); render();
       }
-      openSettings(); return;
+      renderAuto(); return;
     }
     const preset = t.closest("[data-preset]");
     if (preset) {
@@ -1375,7 +1616,7 @@
       }
       return;
     }
-    if (t.closest("[data-go]")) return; // link nativo
+    if (t.closest("a[data-golink]")) return; // link nativo
     if (t.closest("[data-close]")) { closeSheet(); return; }
     if (t.closest("[data-retry]")) { settings.zone === "gps" && !state.gps ? locate() : load(); return; }
     if (t.closest("[data-clear]")) { settings.brand = ""; settings.fresh = false; settings.favOnly = false; render(); return; }
@@ -1388,6 +1629,7 @@
   document.addEventListener("submit", (e) => {
     if (e.target.id === "car-form") { e.preventDefault(); saveCarForm(e.target); }
     if (e.target.id === "trip-form") { e.preventDefault(); tripCalc(e.target); }
+    if (e.target.id === "sp-new" || e.target.id === "sp-exp") { e.preventDefault(); speseSubmit(e.target); }
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.matches("#trip-form [name=q]")) { e.preventDefault(); tripSearch(); return; }
@@ -1405,8 +1647,7 @@
     if (settings.zone === "gps") locate(); else load();
     loadHistoryMeta();
   });
-  $("#btn-settings").addEventListener("click", openSettings);
-  $("#btn-trip").addEventListener("click", () => openTrip());
+
 
   // Aggiorna quando l'app torna in primo piano dopo più di 10 minuti.
   let hiddenAt = 0;
@@ -1422,4 +1663,5 @@
   loadHistoryMeta();
   if (settings.zone === "gps") locate(); else load();
   render();
+  route();
 })();
