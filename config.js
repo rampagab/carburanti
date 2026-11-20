@@ -2,7 +2,7 @@
 window.CARBURANTI_CONFIG = {
   // URL del Cloudflare Worker (es. "https://carburanti.tuonome.workers.dev").
   // Lascia vuoto finché il Worker non è pubblicato: l'app proporrà la demo.
-  WORKER_URL: "",
+  WORKER_URL: "https://carburanti.gabriele-rampazzo-1.workers.dev",
 
   // Zone rapide mostrate in alto.
   ZONES: [

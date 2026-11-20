@@ -79,17 +79,23 @@
   function prettyAddress(a) {
     if (!a) return "";
     // "Viale Della Repubblica 35 - 35043 MONSELICE (PD)" → "Viale della Repubblica 35, Monselice (PD)"
-    const [street, rest] = String(a).split(" - ");
-    const fixCase = (s) => s.toLowerCase().replace(/(^|[\s'(-])(\p{L})/gu, (m, p, c) => p + c.toUpperCase())
-      .replace(/\b(Della|Delle|Dello|Degli|Dei|Del|Di|Da|Al|Alla|E)\b/g, (w) => w.toLowerCase())
-      .replace(/\b(Dell|Dall|Nell|Sull)'/g, (w) => w.toLowerCase()).replace(/'(\p{L})/gu, (m, c) => "'" + c.toUpperCase())
+    // Gestisce anche più parti ("VIA PADOVA - S.S. 16 - MONSELICE (PD)") e sigle (S.R., SNC, km).
+    const fixCase = (str) => str.toLowerCase()
+      .replace(/(^|[\s'(\/-])(\p{L})/gu, (m, p, c) => p + c.toUpperCase())
+      .replace(/\b(Della|Delle|Dello|Degli|Dei|Del|Di|Da|Al|Alla|Ai|E)\b/g, (w) => w.toLowerCase())
+      .replace(/\b(Dell|Dall|Nell|Sull|All)'/g, (w) => w.toLowerCase())
+      .replace(/\b([a-z])\.([a-z])\.?(?=\s|$)/gi, (m, x, y) => (x + "." + y + ".").toUpperCase()) // S.S., S.R., S.P.
+      .replace(/\b(Ss|Sr|Sp|Snc|Sn)\b/g, (w) => w.toUpperCase())
+      .replace(/\bKm\b/g, "km")
       .replace(/^\p{L}/u, (c) => c.toUpperCase());
-    let out = fixCase(street.trim());
-    if (rest) {
-      const m = rest.match(/^\s*\d{5}\s+(.+?)\s*(\(([A-Z]{2})\))?\s*$/);
-      out += ", " + (m ? fixCase(m[1]) + (m[3] ? " (" + m[3] + ")" : "") : rest.trim());
-    }
-    return out;
+    const parts = String(a).split(/\s+-\s+/).map((x) => x.trim()).filter(Boolean);
+    if (!parts.length) return "";
+    let city = "";
+    const last = parts[parts.length - 1];
+    const m = last.match(/^(?:\d{5}\s+)?(.+?)\s*\(([A-Za-z]{2})\)\s*$/);
+    if (parts.length > 1 && m) { city = fixCase(m[1]) + " (" + m[2].toUpperCase() + ")"; parts.pop(); }
+    const street = parts.map((x) => fixCase(x.replace(/\s+SNC$/i, ""))).join(", ");
+    return city ? street + ", " + city : street;
   }
 
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
