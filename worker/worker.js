@@ -6,12 +6,15 @@
 // Endpoint:
 //   GET /search?lat=45.24&lng=11.75&radius=5&fuel=2&mode=1   (mode: 1 self, 0 servito, x tutte)
 //   GET /station/12345
+//   GET /polygon?pts=lat,lng;lat,lng;...&fuel=2&mode=x       (distributori dentro un poligono, es. corridoio di un percorso)
+//   GET /highways                                              (elenco autostrade del MIMIT)
+//   GET /highway?id=A13-31                                     (aree di servizio di un'autostrada)
 //   GET /                                                      (stato)
 //
 // Binding opzionale: KV namespace con nome "ADDR" per ricordare gli indirizzi per 30 giorni.
 
 const API = "https://carburanti.mise.gov.it/ospzApi/";
-const VERSION = "2026-11-20.2"; // pubblicato in automatico da GitHub (Cloudflare Workers Builds)
+const VERSION = "2026-11-27.1"; // pubblicato in automatico da GitHub (Cloudflare Workers Builds)
 
 // Siti autorizzati a usare il Worker dal browser. Aggiungi qui eventuali altri indirizzi.
 // Una lista vuota [] permette qualunque sito.
@@ -45,6 +48,13 @@ export default {
         return json({ success: true, service: "carburanti-proxy", version: VERSION, kv: !!env.ADDR, time: new Date().toISOString() }, 200, cors);
       }
       if (url.pathname === "/search") return await handleSearch(url, env, ctx, cors);
+      if (url.pathname === "/polygon") return await handlePolygon(url, ctx, cors);
+      if (url.pathname === "/highways") return await cached(ctx, cors, "https://cache.local/highways", 86400, () => upstream("registry/highway", { method: "GET" }));
+      if (url.pathname === "/highway") {
+        const id = String(url.searchParams.get("id") || "");
+        if (!/^[A-Z0-9/]{1,12}(-[0-9]{1,3})?$/.test(id)) return json({ success: false, error: "Autostrada non valida" }, 400, cors);
+        return await cached(ctx, cors, `https://cache.local/highway/${id}`, 600, () => upstream("search/highway", { method: "POST", body: JSON.stringify({ highwayId: id }) }));
+      }
       const m = url.pathname.match(/^\/station\/(\d{1,9})\/?$/);
       if (m) return await handleStation(m[1], env, ctx, cors);
       return json({ success: false, error: "Percorso non trovato" }, 404, cors);
@@ -126,6 +136,38 @@ async function addAddresses(results, env, ctx) {
     });
   }
   if (writes.length) ctx.waitUntil(Promise.allSettled(writes));
+}
+
+// ---------- /polygon ----------
+// L'API del MIMIT, con più di due punti, cerca DENTRO il poligono che formano: lo uso per i corridoi dei percorsi.
+async function handlePolygon(url, ctx, cors) {
+  const q = url.searchParams;
+  const pts = String(q.get("pts") || "").split(";").map((p) => p.split(",").map(Number));
+  const fuel = String(q.get("fuel") || "0");
+  const mode = String(q.get("mode") || "x");
+  if (pts.length < 3 || pts.length > 80 || pts.some(([la, lo]) => !isFinite(la) || !isFinite(lo) || la < 35 || la > 48 || lo < 6 || lo > 19.5)) {
+    return json({ success: false, error: "Poligono non valido (da 3 a 80 punti in Italia)" }, 400, cors);
+  }
+  if (!FUELS.has(fuel) || !MODES.has(mode)) return json({ success: false, error: "Carburante o modalità non validi" }, 400, cors);
+  const key = `https://cache.local/polygon?${pts.map(([a, b]) => a.toFixed(3) + "," + b.toFixed(3)).join(";")}&f=${fuel}&m=${mode}`;
+  return cached(ctx, cors, key, SEARCH_CACHE_SECONDS, async () => {
+    const data = await upstream("search/zone", { method: "POST", body: JSON.stringify({
+      points: pts.map(([lat, lng]) => ({ lat: Number(lat.toFixed(5)), lng: Number(lng.toFixed(5)) })),
+      radius: 2, fuelType: `${fuel}-${mode}`, priceOrder: "asc",
+    }) });
+    return { success: true, results: (data && data.results) || [] };
+  });
+}
+
+// Risposta da cache del Worker se c'è, altrimenti calcolata e messa in cache per `seconds`.
+async function cached(ctx, cors, key, seconds, make) {
+  const cache = caches.default;
+  const hit = await cache.match(key);
+  if (hit) return withCors(hit, cors, "HIT");
+  const res = json(await make(), 200, {});
+  res.headers.set("Cache-Control", `public, max-age=${seconds}`);
+  ctx.waitUntil(cache.put(key, res.clone()));
+  return withCors(res, cors, "MISS");
 }
 
 // ---------- /station/:id ----------
