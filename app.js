@@ -1756,6 +1756,11 @@
       <h3>Dove fare il pieno lungo la strada</h3>
       <p class="muted small">Pieno da ${nf1.format(R.liters).replace(",0", "")} ${u}, compresa la strada per arrivarci. ${R.list.length} distributori su ${Math.round(A.totalKm)} km${A.hwIds.size ? ", aree di servizio comprese" : ""}.</p>
       <ol class="along-list">${rows}</ol>
+      ${(() => {
+        const hw = R.list.find((x) => x.hw);
+        if (!hw || R.list.indexOf(hw) < 6) return "";
+        return `<p class="muted small">Senza uscire dall'autostrada: ${esc(prettyBrand(hw.s.brand))} ${esc(hw.s.name || "")}${hw.ref ? " (" + esc(hw.ref) + ")" : ""}, km ${Math.round(hw.along)}, ${price(hw.f.price)}: +${nf2.format(hw.total - R.best.total)} € rispetto al consigliato.</p>`;
+      })()}
       ${cheapest !== R.best ? `<p class="muted small">Il prezzo più basso (${price(cheapest.f.price)}, km ${Math.round(cheapest.along)}) ti costerebbe ${nf2.format(cheapest.total - R.best.total)} € in più contando la deviazione.</p>` : ""}
       <p class="muted small">In autostrada contano solo le aree di servizio: per gli altri distributori dovresti uscire.</p>
     </div>`;
