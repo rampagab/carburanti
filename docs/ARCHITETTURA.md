@@ -15,15 +15,15 @@
 
 | Cartella | Cosa | Stato |
 |---|---|---|
-| `web/src/core/` | Logica pura e testata: filtro anti-errori, consigliato, geometria del percorso, divisione spese | ✅ estratta |
-| `web/src/data/` | Client API e storage | da migrare |
-| `web/src/features/` | prezzi, viaggio, spese, garage, altro | da migrare |
+| `web/src/core/` | Logica pura e testata: filtro anti-errori, consigliato, geometria del percorso, divisione spese, link e messaggi delle spese, formattazione | ✅ estratta |
+| `web/src/data/` | Client API e storage (`storage.ts` ✅, usato anche da legacy) | client API da migrare |
+| `web/src/features/` | prezzi, viaggio, spese, garage, altro | `spese/` ✅, le altre da migrare |
 | `web/src/ui/` | Componenti condivisi | da migrare |
 | `web/src/legacy/` | `app.js` (~2400 righe) e `demo.js`: tutto ciò che non è ancora migrato | in svuotamento |
 | `web/public/` | icone, manifest, service worker | stabile |
 | `worker/` | Proxy: `/search`, `/station/:id`, `/polygon`, `/highways`, `/highway` | stabile |
 | `scripts/`, `data/` | Pipeline Python e dati generati | stabile |
-| `e2e/` | Test Playwright dei flussi principali | rete di sicurezza |
+| `e2e/` | Test Playwright dei flussi principali (`spese.spec.ts`: Chiedi, import da link) | rete di sicurezza |
 | `docs/` | Contesto, sessioni, decisioni | |
 
 ## Pubblicazione

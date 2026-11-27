@@ -1,6 +1,8 @@
 // Pieno furbo: parte dell'app non ancora migrata in moduli (vedi docs/SESSIONI.md).
 // La logica pura viene da ../core (TypeScript, testata).
-import { haversine, resample as resampleKm, corridorPolys as corridorOf, projectOn, plausibleRange, pickFrom, costOf as costCore, estimateDetour, ROAD_FACTOR, shares, balances, settle, groupTotal } from "../core/index.ts";
+import { haversine, resample as resampleKm, corridorPolys as corridorOf, projectOn, plausibleRange, pickFrom, costOf as costCore, estimateDetour, ROAD_FACTOR, uid } from "../core/index.ts";
+import { store } from "../data/storage.ts";
+import { renderSpese, importGroup, getGroups, addGroup, showGroup } from "../features/spese/index.ts";
 
 (function () {
   "use strict";
@@ -17,23 +19,7 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  // ---------- Storage (sempre protetto: in privato o con dati bloccati può fallire) ----------
-  const store = {
-    get(key, fallback) {
-      try {
-        const v = localStorage.getItem("carburanti:" + key);
-        return v == null ? fallback : JSON.parse(v);
-      } catch (_) { return fallback; }
-    },
-    set(key, value) {
-      try { localStorage.setItem("carburanti:" + key, JSON.stringify(value)); } catch (_) { /* pieno o bloccato */ }
-    },
-    clearCache() {
-      try {
-        Object.keys(localStorage).filter((k) => k.startsWith("carburanti:cache:")).forEach((k) => localStorage.removeItem(k));
-      } catch (_) { /* ignora */ }
-    },
-  };
+  // Storage: data/storage.ts (prefisso «carburanti:»).
 
   const settings = Object.assign(
     { zone: "monselice", fuel: 2, mode: 1, radius: 5, sort: "reco", liters: 50, qty: "full", dest: "back", timeValue: 0 },
@@ -1422,7 +1408,7 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
     const maps = isIOS
       ? `https://maps.apple.com/?saddr=${from.lat},${from.lng}&daddr=${to.lat},${to.lng}&dirflg=d`
       : `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=driving`;
-    const g = trip.groupId && groups.find((x) => x.id === trip.groupId);
+    const g = trip.groupId && getGroups().find((x) => x.id === trip.groupId);
     const each = people > 1;
     return `<div class="card trip-res hero">
       <div class="sum-head"><span class="pill-dark">${tripPrefs.roundTrip ? "Andata e ritorno" : "Solo andata"}</span><span class="sum-fuel">${esc(to.name)}</span></div>
@@ -1471,7 +1457,7 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
   const PERSON_COLORS = ["var(--c-yellow)", "var(--c-orange)", "var(--c-lilac)", "var(--c-blue)", "var(--c-pink)", "var(--accent)"];
   function peopleHTML() {
     const ps = tripPrefs.people;
-    const known = [...new Set(groups.flatMap((g) => g.people.map((p) => p.name)))].filter((n) => !ps.includes(n) && !/^Persona \d+$/.test(n)).slice(0, 8);
+    const known = [...new Set(getGroups().flatMap((g) => g.people.map((p) => p.name)))].filter((n) => !ps.includes(n) && !/^Persona \d+$/.test(n)).slice(0, 8);
     return `<div class="people">${ps.map((n, i) => `<span class="person" style="--pc:${PERSON_COLORS[i % PERSON_COLORS.length]}"><button type="button" class="pname" data-pp-rename="${i}" aria-label="Rinomina ${esc(n)}">${esc(n)}</button>${ps.length > 1 ? `<button type="button" class="px" data-pp-del="${i}" aria-label="Togli ${esc(n)}">✕</button>` : ""}</span>`).join("")}
         <label class="chip-toggle"><input type="checkbox" name="round"${tripPrefs.roundTrip ? " checked" : ""}> A/R</label></div>
       <div class="inline pp-add">
@@ -1705,9 +1691,8 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
     if (pay.paypal || pay.iban) g.pay = { to: people[0].id, paypal: pay.paypal || "", iban: pay.iban || "", holder: pay.name || "" };
     if (l.fuel > 0) g.expenses.push({ id: uid("e"), desc: "Carburante", amount: Math.round(l.fuel * 100) / 100, payer: people[0].id, split: all, date: now });
     if (l.toll > 0) g.expenses.push({ id: uid("e"), desc: "Pedaggi", amount: Math.round(l.toll * 100) / 100, payer: people[0].id, split: all, date: now });
-    groups.unshift(g); saveGroups();
+    addGroup(g);
     trip.groupId = g.id;
-    spese.open = g.id; spese.adding = false; spese.pending = null;
     go("spese");
   }
 
@@ -1774,7 +1759,7 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
     if (t.closest("[data-price-reset]")) { trip.priceEdited = false; trip.price = trip.priceInfo.avg.toFixed(3); openTrip(true); return true; }
     if (t.closest("[data-trip-group]")) { tripCreateGroup(); return true; }
     const sg = t.closest("[data-sp-goto]");
-    if (sg) { spese.open = sg.dataset.spGoto; go("spese"); return true; }
+    if (sg) { showGroup(sg.dataset.spGoto); go("spese"); return true; }
     return false;
   }
 
@@ -1890,200 +1875,7 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
     }, () => openPlaces("Posizione non disponibile: controlla i permessi di localizzazione."), { timeout: 12000, maximumAge: 60000 });
   }
 
-  // ---------- Spese di viaggio (stile Splitwise) ----------
-  // Tutto resta sul telefono; per condividere con gli amici si manda un link che contiene il viaggio.
-  let groups = store.get("groups", []);
-  if (!Array.isArray(groups)) groups = [];
-  const saveGroups = () => store.set("groups", groups);
-  const spese = { open: null, creating: false, adding: false, pending: null, msg: "" };
-  const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const eur = (cents) => nf2.format(cents / 100) + " €";
-  const personName = (g, id) => (g.people.find((x) => x.id === id) || { name: "?" }).name;
-
-  function renderSpese() {
-    const g = groups.find((x) => x.id === spese.open);
-    if (g) return showView("spese", groupHTML(g));
-    const pending = spese.pending ? `<div class="notice">Scegli il viaggio per aggiungere <strong>${eur(Math.round(spese.pending.amount * 100))}</strong>. <button class="linkish" data-sp-cancel>Annulla</button></div>` : "";
-    const form = spese.creating || !groups.length ? `<form id="sp-new" class="card form pad" autocomplete="off">
-        <label class="field"><span>Nome del viaggio</span><input name="name" maxlength="40" required placeholder="Es. Weekend a Verona"></label>
-        <label class="field"><span>Chi c'è (separati da virgola)</span><input name="people" required placeholder="Io, Marco, Giulia"></label>
-        <p class="form-err" role="alert" hidden></p>
-        <div class="preset-row"><button class="btn primary" type="submit">Crea</button>${groups.length ? '<button class="btn" type="button" data-sp-nocreate>Annulla</button>' : ""}</div>
-      </form>` : "";
-    showView("spese", `${pending}
-      ${groups.length ? `<ul class="glist">${groups.map((x) => `<li><button class="card gitem" data-sp-open="${esc(x.id)}">
-        <strong>${esc(x.name)}</strong><span class="muted small">${x.people.length} persone · ${x.expenses.length} spese</span>
-        <span class="gtot">${eur(groupTotal(x))}</span></button></li>`).join("")}</ul>` : ""}
-      ${form}
-      ${groups.length && !spese.creating ? '<button class="btn primary wide" data-sp-create>+ Nuovo viaggio</button>' : ""}`);
-  }
-
-  function groupHTML(g) {
-    const b = balances(g);
-    const plan = settle(g);
-    const total = groupTotal(g);
-    const exp = g.expenses.slice().sort((a, c) => (c.date || "").localeCompare(a.date || ""));
-    const pre = spese.pending || {};
-    const addForm = spese.adding || spese.pending ? `<form id="sp-exp" class="card form pad" autocomplete="off">
-        <label class="field"><span>Cosa</span><input name="desc" maxlength="60" required value="${esc(pre.desc || "")}" placeholder="Es. Benzina, pedaggio, pranzo"></label>
-        <label class="field"><span>Importo (€)</span><input name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" required value="${pre.amount ? (Math.round(pre.amount * 100) / 100).toFixed(2) : ""}"></label>
-        <label class="field"><span>Ha pagato</span><select name="payer">${g.people.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label>
-        <fieldset class="box"><legend>Diviso tra</legend><div class="checks">${g.people.map((p) => `<label class="check"><input type="checkbox" name="split" value="${esc(p.id)}" checked> ${esc(p.name)}</label>`).join("")}</div></fieldset>
-        <p class="form-err" role="alert" hidden></p>
-        <div class="preset-row"><button class="btn primary" type="submit">Aggiungi</button><button class="btn" type="button" data-sp-noadd>Annulla</button></div>
-      </form>` : `<button class="btn primary wide" data-sp-add>+ Spesa</button>`;
-    return `<button class="back" data-sp-back>‹ Viaggi</button>
-      <h2 class="view-title">${esc(g.name)}</h2>
-      <p class="muted">Totale ${eur(total)} · ${g.people.length} persone</p>
-      ${addForm}
-      <section class="group">
-        <h3>Saldi</h3>
-        <ul class="bal">${g.people.map((p) => { const v = b[p.id] || 0; return `<li><span>${esc(p.name)}</span><strong class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : v < 0 ? "−" : ""}${eur(Math.abs(v))}</strong></li>`; }).join("")}</ul>
-      </section>
-      <section class="group">
-        <h3>Per pareggiare</h3>
-        ${plan.length ? `<ul class="bal settle">${plan.map((x, i) => `<li><span class="who">${esc(personName(g, x.from))} → ${esc(personName(g, x.to))}</span><strong>${eur(x.cents)}</strong>
-          <span class="acts"><button class="btn sm" data-sp-ask="${i}">Chiedi</button><button class="btn sm primary" data-sp-settle="${i}">Saldato</button></span></li>`).join("")}</ul>` : `<p class="muted">Siete pari.</p>`}
-        ${g.pay ? `<p class="muted small pay-info">Pagamenti a ${esc(personName(g, g.pay.to))}: ${g.pay.paypal ? `PayPal ${esc(g.pay.paypal)}` : ""}${g.pay.paypal && g.pay.iban ? " · " : ""}${g.pay.iban ? `IBAN ${esc(g.pay.iban)}` : ""}</p>` : ""}
-      </section>
-      <section class="group">
-        <h3>Spese</h3>
-        ${exp.length ? `<ul class="places">${exp.map((e) => `<li${e.kind === "pay" ? ' class="paid"' : ""}><span class="pl-name exp"><strong>${esc(e.desc)}</strong>
-          <span class="muted small">${e.kind === "pay" ? "pagamento" : `${esc(personName(g, e.payer))} · ${e.split.length === g.people.length ? "tutti" : e.split.map((id) => esc(personName(g, id))).join(", ")}`}</span></span>
-          <strong class="amt">${eur(Math.round(e.amount * 100))}</strong>
-          <button class="icon-btn" data-sp-del="${esc(e.id)}" aria-label="Elimina ${esc(e.desc)}">✕</button></li>`).join("")}</ul>` : `<p class="muted">Ancora nessuna spesa.</p>`}
-      </section>
-      ${spese.msg ? `<p class="muted small" role="status">${esc(spese.msg)}</p>` : ""}
-      <div class="preset-row">
-        <button class="btn" data-sp-share>Condividi</button>
-        <button class="btn" data-sp-person>+ Persona</button>
-        <button class="btn danger" data-sp-remove>Elimina</button>
-      </div>`;
-  }
-
-  // Messaggio per chiedere i soldi, con link PayPal già compilato e IBAN se chi riceve è chi ha impostato i dati.
-  function askPayment(g, x) {
-    if (!x) return;
-    const amount = (x.cents / 100).toFixed(2);
-    const p = g.pay && g.pay.to === x.to ? g.pay : null;
-    const lines = [`Ciao ${personName(g, x.from)}! Per «${g.name}» la tua parte è ${eur(x.cents)}.`];
-    if (p && p.paypal) lines.push(`PayPal: https://paypal.me/${encodeURIComponent(p.paypal.replace(/^.*paypal\.me\//i, "").replace(/\/.*$/, ""))}/${amount}EUR`);
-    if (p && p.iban) lines.push(`Bonifico: ${p.iban}${p.holder ? " (" + p.holder + ")" : ""}, causale «${g.name}»`);
-    if (!p) lines.push(`Da dare a ${personName(g, x.to)}.`);
-    const text = lines.join("\n");
-    if (navigator.share) navigator.share({ text }).catch(() => {});
-    else if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => { spese.msg = "Messaggio copiato: incollalo in chat."; renderSpese(); }, () => window.prompt("Copia il messaggio", text));
-    else window.prompt("Copia il messaggio", text);
-  }
-
-  function packGroup(g) {
-    const json = JSON.stringify({ v: 1, id: g.id, name: g.name, people: g.people, expenses: g.expenses, pay: g.pay });
-    return btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-  function unpackGroup(str) {
-    const json = decodeURIComponent(escape(atob(str.replace(/-/g, "+").replace(/_/g, "/"))));
-    const d = JSON.parse(json);
-    const clean = (t, n) => String(t == null ? "" : t).slice(0, n);
-    if (!d || !Array.isArray(d.people) || !Array.isArray(d.expenses)) throw new Error("Link non valido");
-    const people = d.people.slice(0, 30).map((p) => ({ id: clean(p.id, 20), name: clean(p.name, 30) })).filter((p) => p.id && p.name);
-    const ids = new Set(people.map((p) => p.id));
-    const expenses = d.expenses.slice(0, 500).map((e) => ({
-      id: clean(e.id, 24), desc: clean(e.desc, 60), amount: Math.round(+e.amount * 100) / 100, payer: clean(e.payer, 20),
-      split: (Array.isArray(e.split) ? e.split : []).map((x) => clean(x, 20)).filter((x) => ids.has(x)), date: clean(e.date, 30),
-      kind: e.kind === "pay" ? "pay" : undefined,
-    })).filter((e) => e.id && e.amount > 0 && e.amount < 1e6 && ids.has(e.payer) && e.split.length);
-    const pay = d.pay && ids.has(clean(d.pay.to, 20)) ? { to: clean(d.pay.to, 20), paypal: clean(d.pay.paypal, 60), iban: clean(d.pay.iban, 40).replace(/[^A-Za-z0-9 ]/g, ""), holder: clean(d.pay.holder, 40) } : undefined;
-    return { id: clean(d.id, 24) || uid("g"), name: clean(d.name, 40) || "Viaggio", people, expenses, pay };
-  }
-  function shareGroup(g) {
-    const link = location.origin + location.pathname + "#spese/import/" + packGroup(g);
-    const plan = settle(g);
-    const text = `${g.name} – totale ${eur(groupTotal(g))}\n` +
-      (plan.length ? plan.map((x) => `${personName(g, x.from)} → ${personName(g, x.to)}: ${eur(x.cents)}`).join("\n") : "Siamo pari.") +
-      `\n\nApri e aggiorna nell'app:`;
-    if (navigator.share) {
-      navigator.share({ title: g.name, text, url: link }).catch(() => {});
-    } else if (navigator.clipboard) {
-      navigator.clipboard.writeText(text + " " + link).then(() => { spese.msg = "Riepilogo e link copiati."; renderSpese(); }, () => {});
-    } else window.prompt("Copia il link", link);
-  }
-  function importGroup(data) {
-    let g;
-    try { g = unpackGroup(data); } catch (_) { window.alert("Link del viaggio non valido."); return; }
-    const i = groups.findIndex((x) => x.id === g.id);
-    const ok = window.confirm(i >= 0 ? `Aggiornare «${g.name}» con i dati ricevuti?` : `Aggiungere il viaggio «${g.name}» (${g.people.length} persone, ${g.expenses.length} spese)?`);
-    if (!ok) return;
-    if (i >= 0) { if (groups[i].me) g.me = groups[i].me; groups[i] = g; } else groups.unshift(g);
-    saveGroups();
-    spese.open = g.id;
-  }
-
-  function speseClick(t) {
-    if (t.closest("[data-sp-create]")) { spese.creating = true; renderSpese(); return true; }
-    if (t.closest("[data-sp-nocreate]")) { spese.creating = false; renderSpese(); return true; }
-    if (t.closest("[data-sp-cancel]")) { spese.pending = null; renderSpese(); return true; }
-    const open = t.closest("[data-sp-open]");
-    if (open) { spese.open = open.dataset.spOpen; spese.msg = ""; renderSpese(); window.scrollTo(0, 0); return true; }
-    if (t.closest("[data-sp-back]")) { spese.open = null; spese.adding = false; spese.msg = ""; renderSpese(); return true; }
-    const g = groups.find((x) => x.id === spese.open);
-    if (!g) return false;
-    if (t.closest("[data-sp-add]")) { spese.adding = true; renderSpese(); const d = $("#sp-exp [name=desc]"); if (d) d.focus(); return true; }
-    if (t.closest("[data-sp-noadd]")) { spese.adding = false; spese.pending = null; renderSpese(); return true; }
-    if (t.closest("[data-sp-share]")) { shareGroup(g); return true; }
-    if (t.closest("[data-sp-person]")) {
-      const n = (window.prompt("Nome") || "").trim().slice(0, 30);
-      if (n) { g.people.push({ id: uid("p"), name: n }); saveGroups(); renderSpese(); }
-      return true;
-    }
-    if (t.closest("[data-sp-remove]")) {
-      if (window.confirm(`Eliminare «${g.name}» e tutte le sue spese?`)) { groups = groups.filter((x) => x !== g); saveGroups(); spese.open = null; renderSpese(); }
-      return true;
-    }
-    const ask = t.closest("[data-sp-ask]");
-    if (ask) { askPayment(g, settle(g)[+ask.dataset.spAsk]); return true; }
-    const st = t.closest("[data-sp-settle]");
-    if (st) {
-      const x = settle(g)[+st.dataset.spSettle];
-      if (x && window.confirm(`${personName(g, x.from)} ha dato ${eur(x.cents)} a ${personName(g, x.to)}?`)) {
-        // Come in Splitwise: un pagamento è una "spesa" pagata dal debitore e tutta a carico del creditore.
-        g.expenses.push({ id: uid("e"), kind: "pay", desc: `${personName(g, x.from)} ha pagato ${personName(g, x.to)}`, amount: x.cents / 100, payer: x.from, split: [x.to], date: new Date().toISOString() });
-        saveGroups(); renderSpese();
-      }
-      return true;
-    }
-    const del = t.closest("[data-sp-del]");
-    if (del) { g.expenses = g.expenses.filter((e) => e.id !== del.dataset.spDel); saveGroups(); renderSpese(); return true; }
-    return false;
-  }
-
-  function speseSubmit(form) {
-    const err = $(".form-err", form);
-    const fail = (m) => { err.hidden = false; err.textContent = m; };
-    if (form.id === "sp-new") {
-      const name = form.name.value.trim();
-      const people = [...new Set(form.people.value.split(/[,;\n]/).map((x) => x.trim().slice(0, 30)).filter(Boolean))];
-      if (!name) return fail("Scrivi un nome.");
-      if (people.length < 2) return fail("Servono almeno 2 persone.");
-      const g = { id: uid("g"), name: name.slice(0, 40), people: people.map((n) => ({ id: uid("p"), name: n })), expenses: [] };
-      groups.unshift(g); saveGroups();
-      spese.creating = false; spese.open = g.id;
-      renderSpese(); window.scrollTo(0, 0);
-      return;
-    }
-    if (form.id === "sp-exp") {
-      const g = groups.find((x) => x.id === spese.open);
-      const amount = Math.round(num(form.amount.value) * 100) / 100;
-      const split = $$("[name=split]", form).filter((c) => c.checked).map((c) => c.value);
-      const desc = form.desc.value.trim();
-      if (!desc) return fail("Scrivi cosa avete pagato.");
-      if (!(amount > 0 && amount < 1e6)) return fail("Importo non valido.");
-      if (!split.length) return fail("Scegli almeno una persona.");
-      g.expenses.push({ id: uid("e"), desc: desc.slice(0, 60), amount, payer: form.payer.value, split, date: new Date().toISOString() });
-      saveGroups();
-      spese.adding = false; spese.pending = null;
-      renderSpese();
-    }
-  }
+  // ---------- Spese di viaggio: features/spese/ ----------
 
   // ---------- Schede (menu in basso) ----------
   const TABS = { prezzi: "Prezzi", viaggio: "Viaggio", spese: "Spese", auto: "Garage", altro: "Altro" };
@@ -2135,7 +1927,6 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
     if (qb) { settings.qty = qb.dataset.qty; saveSettings(); render(); return; }
     const db = t.closest("[data-dest]");
     if (db) { settings.dest = db.dataset.dest; saveSettings(); closePanels(); render(); return; }
-    if (currentTab === "spese" && speseClick(t)) return;
     if (t.closest("[data-car-new]")) { openCarForm(null); return; }
     if (t.closest("[data-car-cancel]")) { const tg = t.closest("[data-car-cancel]").dataset.carCancel; tg === "viaggio" ? openTrip() : renderAuto(); window.scrollTo(0, 0); return; }
     if (currentTab === "viaggio" && tripClick(t)) return;
@@ -2242,7 +2033,6 @@ import { haversine, resample as resampleKm, corridorPolys as corridorOf, project
   document.addEventListener("submit", (e) => {
     if (e.target.id === "car-form") { e.preventDefault(); saveCarForm(e.target); }
     if (e.target.id === "trip-form") { e.preventDefault(); tripCalc(e.target); }
-    if (e.target.id === "sp-new" || e.target.id === "sp-exp") { e.preventDefault(); speseSubmit(e.target); }
     if (e.target.id === "pay-form") {
       e.preventDefault();
       const f = e.target;
