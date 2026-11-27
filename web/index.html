@@ -28,7 +28,6 @@
       d.classList.add(ios ? "ios" : /Android/i.test(ua) ? "android" : "desktop");
     })();
   </script>
-  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
@@ -121,8 +120,6 @@
     <div id="sheet-body"></div>
   </dialog>
 
-  <script src="config.js"></script>
-  <script src="demo.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

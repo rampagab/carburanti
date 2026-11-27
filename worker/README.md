@@ -66,9 +66,9 @@ Una volta collegato, ogni modifica a `worker/` pubblicata su GitHub aggiorna il 
 Non servono token né chiavi nel repository: l'autorizzazione la dai tu, una sola volta, dalla dashboard.
 
 1. Apri il Worker `carburanti` › **Impostazioni** › **Build** (o **Compilazione**) › **Connetti** (Connect).
-2. Scegli **GitHub**. Se te lo chiede, autorizza l'app Cloudflare **solo** sul repository `rampagab/carburanti`.
+2. Scegli **GitHub**. Se te lo chiede, autorizza l'app Cloudflare **solo** sul repository `rampagab/pienofurbo`.
 3. Compila così:
-   - **Repository:** `rampagab/carburanti`; **branch:** `main`.
+   - **Repository:** `rampagab/pienofurbo`; **branch:** `main`.
    - **Directory principale** (Root directory): `worker`.
    - **Comando di build:** lascialo vuoto.
    - **Comando di distribuzione** (Deploy command): `npx wrangler deploy`.

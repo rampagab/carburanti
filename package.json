@@ -1,0 +1,23 @@
+{
+  "name": "pienofurbo",
+  "private": true,
+  "type": "module",
+  "description": "Pieno furbo: prezzi dei carburanti in Italia (PWA) + proxy Cloudflare",
+  "scripts": {
+    "dev": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "preview": "vite preview --config web/vite.config.ts --port 8765",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test --trace off",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.7",
+    "typescript": "6.0.3",
+    "vite": "8.4.0",
+    "vitest": "5.1.2"
+  }
+}
