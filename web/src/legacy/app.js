@@ -1,4 +1,7 @@
-// Carburanti: web app personale per i prezzi dei carburanti (dati MIMIT).
+// Pieno furbo: parte dell'app non ancora migrata in moduli (vedi docs/SESSIONI.md).
+// La logica pura viene da ../core (TypeScript, testata).
+import { haversine, resample as resampleKm, corridorPolys as corridorOf, projectOn, plausibleRange, pickFrom, costOf as costCore, estimateDetour, ROAD_FACTOR, shares, balances, settle, groupTotal } from "../core/index.ts";
+
 (function () {
   "use strict";
 
@@ -58,7 +61,6 @@
   const activeCar = () => cars.find((c) => c.id === activeCarId) || null;
   // L'auto entra nei calcoli solo se il carburante mostrato è il suo.
   const carForFuel = () => { const c = activeCar(); return c && +c.fuel === +settings.fuel ? c : null; };
-  const ROAD_FACTOR = 1.3; // distanza in linea d'aria → strada (stima)
   const CAR_PRESETS = {
     1: { s: [5.5, 40], m: [6.5, 50], l: [8.5, 60] },
     2: { s: [4.5, 40], m: [5.5, 50], l: [7, 65] },
@@ -133,12 +135,6 @@
     let name = (x && x.name) || a.road || town || String((x && x.display_name) || "").split(",")[0];
     if (town && name !== town) name += ", " + town;
     return prov && /^[A-Z]{2}$/.test(prov) ? name + " (" + prov + ")" : name;
-  }
-
-  function haversine(a, b) {
-    const r = Math.PI / 180;
-    const x = Math.sin((b.lat - a.lat) * r / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin((b.lng - a.lng) * r / 2) ** 2;
-    return 2 * 6371 * Math.asin(Math.sqrt(x));
   }
 
   // Loghi dei marchi (data/logos, da scripts/build_logos.py); senza logo: iniziali su un colore fisso.
@@ -362,24 +358,6 @@
   // Prezzo dell'impianto per carburante + modalità scelti (il più basso, se ci sono più prodotti).
   // Filtro anti-errori: un prezzo sotto il 60% o sopra il doppio della mediana della zona è quasi
   // sempre un errore di comunicazione del gestore (es. 0,199 invece di 2,199). Lo escludo.
-  const PLAUSIBLE_MIN = 0.6, PLAUSIBLE_MAX = 2;
-  function plausibleRange(stations, fuel, self) {
-    const all = [];
-    for (const st of stations) for (const f of st.fuels) if (f.fuelId === fuel && f.isSelf === self && f.price > 0) all.push(f.price);
-    if (all.length < 5) return [0, Infinity]; // troppo pochi dati per giudicare
-    all.sort((a, b) => a - b);
-    const m = all[Math.floor(all.length / 2)];
-    return [m * PLAUSIBLE_MIN, m * PLAUSIBLE_MAX];
-  }
-  function pickFrom(st, fuel, self, range) {
-    let best = null;
-    for (const f of st.fuels) {
-      if (f.fuelId !== fuel || f.isSelf !== self || f.price == null || f.price <= 0) continue;
-      if (f.price < range[0] || f.price > range[1]) continue;
-      if (!best || f.price < best.price) best = f;
-    }
-    return best;
-  }
   let pricedMemo = { stations: null, key: "", rows: [], dropped: 0 };
   function priced() {
     const key = settings.fuel + "-" + settings.mode;
@@ -447,16 +425,9 @@
     const r = reco.road[s.id];
     if (r) return { km: r.km, min: r.min, toll: reco.tolls[s.id] || 0, exact: true };
     const st = { lat: s.lat, lng: s.lng };
-    const km = Math.max(0, haversine(P.A, st) + haversine(st, P.C) - haversine(P.A, P.C)) * ROAD_FACTOR;
-    return { km, min: km / 40 * 60, toll: 0, exact: false };
+    return estimateDetour(haversine(P.A, st), haversine(st, P.C), haversine(P.A, P.C));
   }
-  function costOf(x, P) {
-    const e = extraFor(x.s, P);
-    const fill = x.f.price * P.liters;
-    const road = e.km * P.cons / 100 * x.f.price;
-    const time = e.min / 60 * P.timeValue;
-    return { total: fill + road + e.toll + time, fill, road, toll: e.toll, time, km: e.km, min: e.min, exact: e.exact };
-  }
+  const costOf = (x, P) => costCore(x.f.price, extraFor(x.s, P), P);
   function recoRanking() {
     const P = recoParams();
     if (!P) return null;
@@ -1115,7 +1086,7 @@
         <button class="btn" id="btn-clear-cache">Svuota dati offline</button>
       </section>
       <section class="group">
-        <p class="muted small">${DEMO ? '<a href="./">Esci dalla demo</a>' : '<a href="?demo=1">Modalità demo</a>'} · <a href="https://github.com/rampagab/carburanti" target="_blank" rel="noopener">Codice</a></p>
+        <p class="muted small">${DEMO ? '<a href="./">Esci dalla demo</a>' : '<a href="?demo=1">Modalità demo</a>'} · <a href="https://github.com/rampagab/pienofurbo" target="_blank" rel="noopener">Codice</a></p>
       </section>`);
     $("#in-liters").addEventListener("change", (e) => {
       const v = Math.round(+e.target.value);
@@ -1610,56 +1581,9 @@
   // dentro il poligono (API MIMIT tramite Worker); 4) aree di servizio delle autostrade percorse;
   // 5) classifica per costo: pieno + carburante della deviazione (+ tempo, se ha un valore).
   const CORRIDOR_KM = 1.5, CHUNK_KM = 25;
-  const kmx = (lat) => 111.32 * Math.cos(lat * Math.PI / 180);
 
-  function resample(pts, stepKm) {
-    const out = [];
-    let acc = 0;
-    pts.forEach((p, i) => {
-      if (i) acc += haversine(pts[i - 1], p);
-      p.km = acc;
-      if (!out.length || p.km - out[out.length - 1].km >= stepKm || i === pts.length - 1) out.push(p);
-    });
-    return out;
-  }
-  function corridorPolys(pts) {
-    const polys = [];
-    let start = 0;
-    while (start < pts.length - 1) {
-      let end = start;
-      while (end < pts.length - 1 && pts[end + 1].km - pts[start].km <= CHUNK_KM) end++;
-      if (end === start) end++;
-      const seg = pts.slice(start, end + 1);
-      const left = [], right = [];
-      seg.forEach((p, i) => {
-        const a = seg[Math.max(0, i - 1)], b = seg[Math.min(seg.length - 1, i + 1)];
-        const dx = (b.lng - a.lng) * kmx(p.lat), dy = (b.lat - a.lat) * 111.32;
-        const L = Math.hypot(dx, dy) || 1;
-        const nx = -dy / L * CORRIDOR_KM, ny = dx / L * CORRIDOR_KM;
-        left.push({ lat: p.lat + ny / 111.32, lng: p.lng + nx / kmx(p.lat) });
-        right.push({ lat: p.lat - ny / 111.32, lng: p.lng - nx / kmx(p.lat) });
-      });
-      // allungo un po' gli estremi per non perdere i distributori proprio all'inizio o alla fine
-      polys.push(left.concat(right.reverse()));
-      start = end;
-    }
-    return polys;
-  }
-  // Punto del percorso più vicino a un distributore: distanza dalla strada, km dalla partenza, se è autostrada.
-  function projectOn(pts, s) {
-    let best = { off: Infinity, along: 0, mw: false, ref: "" };
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i];
-      const kx = kmx(a.lat);
-      const bx = (b.lng - a.lng) * kx, by = (b.lat - a.lat) * 111.32;
-      const px = (s.lng - a.lng) * kx, py = (s.lat - a.lat) * 111.32;
-      const L2 = bx * bx + by * by || 1e-9;
-      const t = Math.max(0, Math.min(1, (px * bx + py * by) / L2));
-      const off = Math.hypot(px - t * bx, py - t * by);
-      if (off < best.off) best = { off, along: a.km + t * (b.km - a.km), mw: a.mw && b.mw, ref: a.ref || b.ref };
-    }
-    return best;
-  }
+  const resample = resampleKm;
+  const corridorPolys = (pts) => corridorOf(pts, CORRIDOR_KM, CHUNK_KM);
   async function pool(items, n, fn) {
     const out = [];
     let i = 0;
@@ -1975,45 +1899,6 @@
   const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const eur = (cents) => nf2.format(cents / 100) + " €";
   const personName = (g, id) => (g.people.find((x) => x.id === id) || { name: "?" }).name;
-
-  // Quota di ciascuno in centesimi (i centesimi avanzati vanno ai primi della lista).
-  function shares(e) {
-    const total = Math.round(e.amount * 100), n = e.split.length, out = {};
-    if (!n) return out;
-    const base = Math.floor(total / n);
-    const rem = total - base * n;
-    // I centesimi avanzati ruotano tra le persone (in base alla spesa), così non toccano sempre agli stessi.
-    let h = 0; for (const ch of String(e.id)) h = (h * 31 + ch.charCodeAt(0)) % 9973;
-    e.split.forEach((id, i) => { out[id] = base + (((i - h) % n + n) % n < rem ? 1 : 0); });
-    return out;
-  }
-  function balances(g) {
-    const b = {};
-    g.people.forEach((p) => { b[p.id] = 0; });
-    for (const e of g.expenses) {
-      b[e.payer] = (b[e.payer] || 0) + Math.round(e.amount * 100);
-      const sh = shares(e);
-      for (const id in sh) b[id] = (b[id] || 0) - sh[id];
-    }
-    return b;
-  }
-  // Il minor numero di pagamenti per pareggiare: il più indebitato paga chi deve ricevere di più.
-  function settle(g) {
-    const b = balances(g);
-    const deb = Object.entries(b).filter(([, v]) => v < 0).map(([id, v]) => ({ id, v: -v })).sort((a, c) => c.v - a.v);
-    const cred = Object.entries(b).filter(([, v]) => v > 0).map(([id, v]) => ({ id, v })).sort((a, c) => c.v - a.v);
-    const out = [];
-    let i = 0, j = 0;
-    while (i < deb.length && j < cred.length) {
-      const x = Math.min(deb[i].v, cred[j].v);
-      if (x > 0) out.push({ from: deb[i].id, to: cred[j].id, cents: x });
-      deb[i].v -= x; cred[j].v -= x;
-      if (!deb[i].v) i++;
-      if (!cred[j].v) j++;
-    }
-    return out;
-  }
-  const groupTotal = (g) => g.expenses.reduce((a, e) => a + Math.round(e.amount * 100), 0);
 
   function renderSpese() {
     const g = groups.find((x) => x.id === spese.open);
@@ -2401,7 +2286,8 @@
   // L'app installata (schermata Home) spesso riprende da dove era rimasta senza ricaricare.
   // Quando torna in primo piano controllo se è stata pubblicata una nuova versione: se sì, ricarico.
   const STANDALONE = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
-  const VERSION_FILES = ["index.html", "app.js", "style.css"];
+  // Con la build i nomi di JS e CSS cambiano a ogni rilascio, e index.html con loro: basta lui.
+  const VERSION_FILES = ["index.html"];
   let appVersion = null, swReg = null, reloading = false;
   async function versionNow() {
     try {

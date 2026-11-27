@@ -3,7 +3,7 @@
 Web app personale per i prezzi dei carburanti, pensata per iPhone.
 Su Safari: **Condividi › Aggiungi alla schermata Home**.
 
-**App:** <https://rampagab.github.io/carburanti/>. Con dati finti: `?demo=1`.
+**App:** <https://rampagab.github.io/pienofurbo/>. Con dati finti: `?demo=1`.
 
 ## Cosa fa
 
@@ -39,12 +39,13 @@ Su Safari: **Condividi › Aggiungi alla schermata Home**.
 
 ## Come è fatto
 
-| Parte | File | Dove gira |
+| Parte | Dove | Pubblicazione |
 |---|---|---|
-| Web app (HTML/CSS/JS, senza build) | `index.html`, `style.css`, `app.js`, `config.js`, `demo.js`, `sw.js` | GitHub Pages |
-| Proxy verso l'API MIMIT | `worker/worker.js` (guida: [`worker/README.md`](worker/README.md)) | Cloudflare Workers Free |
-| Storico giornaliero | `scripts/snapshot.py`, `.github/workflows/snapshot.yml` → `data/` | GitHub Actions |
+| Web app (Vite + TypeScript) | `web/` (logica testata in `web/src/core/`) | GitHub Actions → GitHub Pages |
+| Proxy verso l'API MIMIT | `worker/` (guida: [`worker/README.md`](worker/README.md)) | Cloudflare Workers Builds |
+| Storico, auto, pedaggi, loghi | `scripts/` → `data/` | GitHub Actions (pianificate) |
 
+Struttura e regole: [`docs/ARCHITETTURA.md`](docs/ARCHITETTURA.md), [`CLAUDE.md`](CLAUDE.md), [`docs/SESSIONI.md`](docs/SESSIONI.md).
 Nessuna chiave o segreto nel repository.
 
 ## Storico (GitHub Actions)
@@ -83,7 +84,9 @@ La ricerca per **targa** non c'è: in Italia non esiste un servizio gratuito e p
 ## Prova in locale
 
 ```bash
-python3 -m http.server 8765
+npm ci
+npm run dev
 ```
 
 Poi apri <http://localhost:8765/?demo=1>. Senza `?demo=1` l'app usa il Worker, che accetta anche `localhost:8765`.
+Prima di un commit: `npm run check` (tipi, test, build) e `npm run e2e` (test nel browser).

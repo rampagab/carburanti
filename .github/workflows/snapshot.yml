@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
 
 concurrency:
   group: snapshot
@@ -39,12 +38,4 @@ jobs:
           fi
           git commit -m "Storico prezzi $(TZ=Europe/Rome date +%F)"
           git push
-          echo "PUSHED=1" >> "$GITHUB_ENV"
-
-      # I push fatti con il token di Actions potrebbero non ripubblicare il sito: lo chiedo esplicitamente.
-      - name: Ripubblica GitHub Pages
-        if: env.PUSHED == '1'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" --silent
+      # La ripubblicazione del sito parte da sola: pages.yml ascolta la fine di questo workflow.
