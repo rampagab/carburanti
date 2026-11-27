@@ -471,3 +471,17 @@ code { background: var(--surface-2); border: 1px solid var(--line); padding: 1px
 .ptr.on { opacity: 1; }
 .ptr.ready { background: var(--accent); }
 .ptr.spinning img { animation: rot .7s linear infinite; }
+
+/* ---------- Viaggio: pieno lungo la strada ---------- */
+.along h3 { margin: 0 0 4px; font-size: 18px; letter-spacing: -0.01em; }
+.along p { margin: 6px 0 0; }
+.along-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.along-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 8px 8px 10px; border: var(--border); border-radius: 14px; background: var(--surface); }
+.along-list .rank { width: 34px; height: 34px; border-radius: 10px; font-size: 14px; }
+.al-info { display: grid; min-width: 0; }
+.al-info strong { display: flex; align-items: center; gap: 6px; font-weight: 800; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.al-info .logo { width: 22px; height: 22px; border-radius: 6px; }
+.al-info small { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.al-price { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.round-go.sm { width: 38px; height: 38px; }
+.round-go.sm svg { width: 18px; height: 18px; }

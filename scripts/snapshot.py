@@ -136,6 +136,33 @@ def from_csv(fetch=http):
     return {k: v for k, v in wanted.items() if v["prices"]}
 
 
+# ---------- Filtro anti-errori ----------
+def drop_implausible(stations, lo=0.6, hi=2.0):
+    """Toglie i prezzi sotto il 60% o sopra il doppio della mediana del loro carburante/modalità
+    (errori di comunicazione, es. 0,199 invece di 2,199). Ritorna quanti ne ha tolti."""
+    by_key = {}
+    for s in stations.values():
+        for k, p in s["prices"].items():
+            by_key.setdefault(k, []).append(p)
+    ranges = {}
+    for k, v in by_key.items():
+        if len(v) >= 5:
+            v = sorted(v)
+            m = v[len(v) // 2]
+            ranges[k] = (m * lo, m * hi)
+    dropped = 0
+    for sid in list(stations):
+        prices = stations[sid]["prices"]
+        for k in list(prices):
+            r = ranges.get(k)
+            if r and not (r[0] <= prices[k] <= r[1]):
+                del prices[k]
+                dropped += 1
+        if not prices:
+            del stations[sid]
+    return dropped
+
+
 # ---------- Scrittura ----------
 def load_json(path, default):
     try:
@@ -196,6 +223,9 @@ def main():
     except Exception as e:  # noqa: BLE001 - qualunque errore: si passa ai CSV
         print(f"API non disponibile ({e}); uso i CSV open data.", file=sys.stderr)
         stations, source = from_csv(), "csv"
+    dropped = drop_implausible(stations)
+    if dropped:
+        print(f"Prezzi anomali esclusi: {dropped}")
     if not stations:
         print("Nessun dato raccolto.", file=sys.stderr)
         return 1

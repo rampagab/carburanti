@@ -253,6 +253,37 @@
       const mwKm = Object.values(byRef).reduce((a, b) => a + b, 0);
       return { km: r.distance / 1000, min: r.duration / 60, mwKm, byRef, roads: Object.keys(byRef) };
     },
+    // Tracciato completo del percorso, con i tratti in autostrada marcati.
+    async routeGeo(a, b) {
+      if (DEMO) return window.CarburantiDemo.routeGeo(a, b);
+      const j = await getJSON(`https://router.project-osrm.org/route/v1/driving/${a.lng.toFixed(5)},${a.lat.toFixed(5)};${b.lng.toFixed(5)},${b.lat.toFixed(5)}?overview=false&steps=true&geometries=geojson&alternatives=false`, 25000);
+      if (!j || j.code !== "Ok" || !j.routes || !j.routes.length) throw new Error("Percorso non trovato");
+      const pts = [];
+      for (const leg of j.routes[0].legs || []) {
+        for (const st of leg.steps || []) {
+          const refs = String(st.ref || "").split(/[;,]/).map((x) => x.replace(/\s+/g, "").toUpperCase());
+          const m = refs.map((x) => x.match(/^A\d+/)).find(Boolean);
+          for (const [lng, lat] of (st.geometry && st.geometry.coordinates) || []) pts.push({ lat, lng, mw: !!m, ref: m ? m[0] : "" });
+        }
+      }
+      return pts;
+    },
+    async polygon(poly, fuel) {
+      if (DEMO) return window.CarburantiDemo.polygon(poly, fuel);
+      const pts = poly.map((p) => p.lat.toFixed(5) + "," + p.lng.toFixed(5)).join(";");
+      const j = await getJSON(`${WORKER}/polygon?pts=${pts}&fuel=${fuel}&mode=x`, 25000);
+      return (j.results || []).map(normalizeStation);
+    },
+    async highways() {
+      if (DEMO) return [];
+      if (!carCache.highways) carCache.highways = getJSON(`${WORKER}/highways`, 15000).then((j) => j.results || []).catch(() => { carCache.highways = null; return []; });
+      return carCache.highways;
+    },
+    async highway(id) {
+      if (DEMO) return [];
+      const j = await getJSON(`${WORKER}/highway?id=${encodeURIComponent(id)}`, 20000);
+      return (j.results || []).map(normalizeStation);
+    },
     // Distanze e tempi su strada: dall'origine a ogni distributore e da ogni distributore alla destinazione.
     async table(a, list, c) {
       if (DEMO) return window.CarburantiDemo.table(a, list, c);
@@ -329,19 +360,46 @@
   }
 
   // Prezzo dell'impianto per carburante + modalità scelti (il più basso, se ci sono più prodotti).
-  function pick(st) {
+  // Filtro anti-errori: un prezzo sotto il 60% o sopra il doppio della mediana della zona è quasi
+  // sempre un errore di comunicazione del gestore (es. 0,199 invece di 2,199). Lo escludo.
+  const PLAUSIBLE_MIN = 0.6, PLAUSIBLE_MAX = 2;
+  function plausibleRange(stations, fuel, self) {
+    const all = [];
+    for (const st of stations) for (const f of st.fuels) if (f.fuelId === fuel && f.isSelf === self && f.price > 0) all.push(f.price);
+    if (all.length < 5) return [0, Infinity]; // troppo pochi dati per giudicare
+    all.sort((a, b) => a - b);
+    const m = all[Math.floor(all.length / 2)];
+    return [m * PLAUSIBLE_MIN, m * PLAUSIBLE_MAX];
+  }
+  function pickFrom(st, fuel, self, range) {
     let best = null;
     for (const f of st.fuels) {
-      if (f.fuelId !== +settings.fuel || f.isSelf !== (+settings.mode === 1) || f.price == null || f.price <= 0) continue;
+      if (f.fuelId !== fuel || f.isSelf !== self || f.price == null || f.price <= 0) continue;
+      if (f.price < range[0] || f.price > range[1]) continue;
       if (!best || f.price < best.price) best = f;
     }
     return best;
   }
-
+  let pricedMemo = { stations: null, key: "", rows: [], dropped: 0 };
   function priced() {
-    return state.stations
-      .map((s) => ({ s, f: pick(s) }))
-      .filter((x) => x.f);
+    const key = settings.fuel + "-" + settings.mode;
+    if (pricedMemo.stations === state.stations && pricedMemo.key === key) return pricedMemo.rows;
+    const fuel = +settings.fuel, self = +settings.mode === 1;
+    const range = plausibleRange(state.stations, fuel, self);
+    let dropped = 0;
+    const rows = [];
+    for (const s of state.stations) {
+      const f = pickFrom(s, fuel, self, range);
+      if (f) rows.push({ s, f });
+      else if (s.fuels.some((x) => x.fuelId === fuel && x.isSelf === self && x.price > 0)) dropped++;
+    }
+    pricedMemo = { stations: state.stations, key, rows, dropped };
+    return rows;
+  }
+  // Compatibilità: il prezzo mostrato per un impianto (stesso filtro della lista).
+  function pick(st) {
+    const r = priced().find((x) => x.s === st);
+    return r ? r.f : null;
   }
 
   // Distributore di riferimento: il più vicino (quello dove andresti senza spostarti).
@@ -686,7 +744,7 @@
       <p class="reco-why">${esc(P.label.startsWith("Pieno") ? "Pieno" : P.label)}: ${nf2.format(R.c.fill)} € di carburante + ${nf2.format(R.c.road)} € di strada${R.c.toll ? ` + ${nf2.format(R.c.toll)} € di pedaggio` : ""}${R.c.time ? ` + ${nf2.format(R.c.time)} € di tempo` : ""}. ${P.back ? "Andata e ritorno da qui" : "Lungo la strada verso " + esc(P.destName)}${P.car ? ", " + esc(P.car.name) + " a " + nf1.format(100 / P.car.cons) + " km/" + qu : ", consumo medio"}.</p>
       ${others.length ? `<ul class="cmp">${others.join("")}</ul>` : ""}
       ${trend}
-      <div class="sum-foot">${esc(center ? center.name : "")} · ${settings.radius} km · ${rows.length} impianti${reco.ok ? "" : " · distanze stimate"}${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
+      <div class="sum-foot">${esc(center ? center.name : "")} · ${settings.radius} km · ${rows.length} impianti${pricedMemo.dropped ? ` · ${pricedMemo.dropped} prezz${pricedMemo.dropped === 1 ? "o anomalo escluso" : "i anomali esclusi"}` : ""}${reco.ok ? "" : " · distanze stimate"}${state.loading ? ' · <span class="spin" aria-label="Caricamento"></span>' : ""}</div>
     </div>`;
   }
 
@@ -1480,7 +1538,8 @@
         <p class="form-err" role="alert" hidden></p>
         <button class="btn primary big-btn" type="submit">Calcola</button>
       </form>
-      <div id="trip-out" class="trip-out" aria-live="polite">${tripResultHTML()}</div>`;
+      <div id="trip-out" class="trip-out" aria-live="polite">${tripResultHTML()}</div>
+      <div id="along">${trip.res ? alongHTML() : ""}</div>`;
   }
 
   function openTrip(keepScroll) {
@@ -1546,6 +1605,166 @@
     if (which === "from" && val && !trip.to) { const i = $("[data-pf-input=to]"); if (i) i.focus(); }
   }
 
+  // ---------- Dove fare il pieno lungo il percorso ----------
+  // 1) tracciato OSRM; 2) corridoio di ±1,5 km diviso in tratti; 3) per ogni tratto i distributori
+  // dentro il poligono (API MIMIT tramite Worker); 4) aree di servizio delle autostrade percorse;
+  // 5) classifica per costo: pieno + carburante della deviazione (+ tempo, se ha un valore).
+  const CORRIDOR_KM = 1.5, CHUNK_KM = 25;
+  const kmx = (lat) => 111.32 * Math.cos(lat * Math.PI / 180);
+
+  function resample(pts, stepKm) {
+    const out = [];
+    let acc = 0;
+    pts.forEach((p, i) => {
+      if (i) acc += haversine(pts[i - 1], p);
+      p.km = acc;
+      if (!out.length || p.km - out[out.length - 1].km >= stepKm || i === pts.length - 1) out.push(p);
+    });
+    return out;
+  }
+  function corridorPolys(pts) {
+    const polys = [];
+    let start = 0;
+    while (start < pts.length - 1) {
+      let end = start;
+      while (end < pts.length - 1 && pts[end + 1].km - pts[start].km <= CHUNK_KM) end++;
+      if (end === start) end++;
+      const seg = pts.slice(start, end + 1);
+      const left = [], right = [];
+      seg.forEach((p, i) => {
+        const a = seg[Math.max(0, i - 1)], b = seg[Math.min(seg.length - 1, i + 1)];
+        const dx = (b.lng - a.lng) * kmx(p.lat), dy = (b.lat - a.lat) * 111.32;
+        const L = Math.hypot(dx, dy) || 1;
+        const nx = -dy / L * CORRIDOR_KM, ny = dx / L * CORRIDOR_KM;
+        left.push({ lat: p.lat + ny / 111.32, lng: p.lng + nx / kmx(p.lat) });
+        right.push({ lat: p.lat - ny / 111.32, lng: p.lng - nx / kmx(p.lat) });
+      });
+      // allungo un po' gli estremi per non perdere i distributori proprio all'inizio o alla fine
+      polys.push(left.concat(right.reverse()));
+      start = end;
+    }
+    return polys;
+  }
+  // Punto del percorso più vicino a un distributore: distanza dalla strada, km dalla partenza, se è autostrada.
+  function projectOn(pts, s) {
+    let best = { off: Infinity, along: 0, mw: false, ref: "" };
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const kx = kmx(a.lat);
+      const bx = (b.lng - a.lng) * kx, by = (b.lat - a.lat) * 111.32;
+      const px = (s.lng - a.lng) * kx, py = (s.lat - a.lat) * 111.32;
+      const L2 = bx * bx + by * by || 1e-9;
+      const t = Math.max(0, Math.min(1, (px * bx + py * by) / L2));
+      const off = Math.hypot(px - t * bx, py - t * by);
+      if (off < best.off) best = { off, along: a.km + t * (b.km - a.km), mw: a.mw && b.mw, ref: a.ref || b.ref };
+    }
+    return best;
+  }
+  async function pool(items, n, fn) {
+    const out = [];
+    let i = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (i < items.length) { const k = i++; out[k] = await fn(items[k]).catch(() => null); }
+    }));
+    return out;
+  }
+
+  async function loadAlong(from, to) {
+    const key = `${from.lat},${from.lng}>${to.lat},${to.lng}|${tripFuel()}`;
+    trip.along = { key, status: "loading" };
+    updateAlong();
+    try {
+      const raw = await api.routeGeo(from, to);
+      const pts = resample(raw, 1);
+      const fuel = tripFuel();
+      const polys = corridorPolys(pts);
+      const chunks = await pool(polys, 4, (poly) => api.polygon(poly, fuel));
+      const byId = new Map();
+      for (const list of chunks) for (const st of list || []) byId.set(st.id, st);
+      // Aree di servizio sulle autostrade del percorso (raggiungibili senza uscire).
+      const refs = [...new Set(pts.filter((p) => p.mw).map((p) => p.ref))];
+      const hwIds = new Set();
+      if (refs.length) {
+        const all = await api.highways();
+        const ids = all.map((h) => h.id).filter((id) => id.split("-")[0].split("/").some((r) => refs.includes(r))).slice(0, 10);
+        const lists = await pool(ids, 3, (id) => api.highway(id));
+        for (const list of lists) for (const st of list || []) { hwIds.add(st.id); if (!byId.has(st.id)) byId.set(st.id, st); }
+      }
+      if (trip.along.key !== key) return;
+      trip.along = { key, status: "ok", stations: [...byId.values()], pts, hwIds, totalKm: pts[pts.length - 1].km };
+    } catch (e) {
+      if (trip.along.key === key) trip.along = { key, status: "err", msg: e.message || String(e) };
+    }
+    updateAlong();
+  }
+
+  function alongRanking() {
+    const A = trip.along;
+    if (!A || A.status !== "ok") return null;
+    const fuel = tripFuel();
+    const car = tripCar();
+    const cons = car ? car.cons : tripPrefs.cons;
+    const liters = car ? car.tank : settings.liters;
+    const tv = +settings.timeValue || 0;
+    const selfFirst = !(fuel === 3 || fuel === 4);
+    const list = [];
+    for (const self of selfFirst ? [true, false] : [false, true]) {
+      const range = plausibleRange(A.stations, fuel, self);
+      for (const s of A.stations) {
+        const f = pickFrom(s, fuel, self, range);
+        if (!f || list.some((x) => x.s.id === s.id)) continue;
+        const pr = projectOn(A.pts, s);
+        const isHw = A.hwIds.has(s.id);
+        let km, min;
+        if (isHw) {
+          if (!pr.mw || pr.off > 1.5) continue;      // area di servizio di un'autostrada che non percorri lì
+          km = 0; min = 4;
+        } else {
+          if (pr.mw && pr.off > 0.3) continue;       // sei in autostrada: per arrivarci dovresti uscire
+          if (pr.off > CORRIDOR_KM + 0.3) continue;
+          km = 2 * pr.off * ROAD_FACTOR; min = km / 40 * 60 + 3;
+        }
+        const total = f.price * liters + km * cons / 100 * f.price + min / 60 * tv;
+        list.push({ s, f, self, km, min, along: pr.along, hw: isHw, ref: pr.ref, total });
+      }
+      if (list.length >= 3) break;                   // c'è il self: il servito non serve
+    }
+    list.sort((a, b) => a.total - b.total);
+    return { list, liters, best: list[0] };
+  }
+
+  function alongHTML() {
+    const A = trip.along;
+    if (!A) return "";
+    if (A.status === "loading") return `<div class="card pad along"><h3>Dove fare il pieno lungo la strada</h3><p class="muted"><span class="spin"></span> Cerco i distributori lungo il percorso…</p></div>`;
+    if (A.status === "err") return `<div class="card pad along"><h3>Dove fare il pieno lungo la strada</h3><p class="muted">Non disponibile ora: ${esc(A.msg)}</p></div>`;
+    const R = alongRanking();
+    if (!R || !R.list.length) return `<div class="card pad along"><h3>Dove fare il pieno lungo la strada</h3><p class="muted">Nessun distributore trovato vicino al percorso.</p></div>`;
+    const u = tripFuel() === 3 ? "kg" : "L";
+    const cheapest = R.list.reduce((a, x) => (x.f.price < a.f.price ? x : a), R.list[0]);
+    const rows = R.list.slice(0, 6).map((x, i) => {
+      const d = x.total - R.best.total;
+      return `<li>
+        <span class="rank" style="--rk:${i ? RANK_COLORS[(i - 1) % RANK_COLORS.length] : "var(--accent)"}" aria-hidden="true">${i + 1}</span>
+        <span class="al-info"><strong>${logoHTML(x.s.brand)}${esc(prettyBrand(x.s.brand))}</strong>
+          <small>km ${Math.round(x.along)} · ${x.hw ? `area di servizio${x.ref ? " " + esc(x.ref) : ""}` : x.km < 0.1 ? "sulla strada" : `${nf1.format(x.km / 2 / ROAD_FACTOR)} km dalla strada`}${x.self ? "" : " · servito"}${i ? ` · +${nf2.format(d)} €` : ""}</small></span>
+        <span class="al-price">${price(x.f.price)}</span>
+        <a class="round-go sm" href="${mapsUrl(x.s)}" target="_blank" rel="noopener" aria-label="Portami a ${esc(prettyBrand(x.s.brand))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>
+      </li>`;
+    }).join("");
+    return `<div class="card pad along">
+      <h3>Dove fare il pieno lungo la strada</h3>
+      <p class="muted small">Pieno da ${nf1.format(R.liters).replace(",0", "")} ${u}, compresa la strada per arrivarci. ${R.list.length} distributori su ${Math.round(A.totalKm)} km${A.hwIds.size ? ", aree di servizio comprese" : ""}.</p>
+      <ol class="along-list">${rows}</ol>
+      ${cheapest !== R.best ? `<p class="muted small">Il prezzo più basso (${price(cheapest.f.price)}, km ${Math.round(cheapest.along)}) ti costerebbe ${nf2.format(cheapest.total - R.best.total)} € in più contando la deviazione.</p>` : ""}
+      <p class="muted small">In autostrada contano solo le aree di servizio: per gli altri distributori dovresti uscire.</p>
+    </div>`;
+  }
+  function updateAlong() {
+    const el = $("#along");
+    if (el) el.innerHTML = alongHTML();
+  }
+
   function tripCreateGroup() {
     const l = trip.last;
     if (!l) return;
@@ -1578,6 +1797,7 @@
       trip.fromPoint = { lat: from.lat, lng: from.lng };
       trip.groupId = null;
       openTrip(true);
+      loadAlong(trip.fromPoint, trip.to);
       const out = $("#trip-out");
       if (out) out.scrollIntoView({ block: "start", behavior: "smooth" });
     } catch (e) {

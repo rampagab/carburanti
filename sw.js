@@ -1,7 +1,7 @@
 // Service worker: l'app si apre anche offline (dalla schermata Home), ma quando c'è rete prende SEMPRE
 // i file appena pubblicati. GitHub Pages fa tenere i file in cache per 10 minuti: qui li chiedo con
 // cache "no-cache" (il browser ricontrolla col server ogni volta), così un rilascio arriva subito.
-const CACHE = "pienofurbo-v4";
+const CACHE = "pienofurbo-v5";
 const SHELL = [
   "./", "index.html", "style.css", "app.js", "config.js", "demo.js", "manifest.webmanifest",
   "icons/logo-mark.svg", "icons/favicon.svg", "icons/favicon-32.png", "icons/icon.svg",

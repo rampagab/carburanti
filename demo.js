@@ -228,5 +228,22 @@
     return { dist, dur, n, pts };
   }
 
-  window.CarburantiDemo = { search, station, history, average, geocode, route, table };
+  // Tracciato finto: linea retta campionata ogni 500 m, con un tratto centrale "in autostrada".
+  async function routeGeo(a, b) {
+    await delay(300);
+    const n = Math.max(2, Math.round(haversine(a, b) * 2));
+    return Array.from({ length: n + 1 }, (_, i) => {
+      const t = i / n;
+      return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t, mw: t > 0.2 && t < 0.8, ref: t > 0.2 && t < 0.8 ? "A13" : "" };
+    });
+  }
+  // Distributori finti dentro il poligono: quelli generati attorno al suo centro.
+  async function polygon(poly) {
+    await delay(200);
+    const c = { lat: poly.reduce((x, p) => x + p.lat, 0) / poly.length, lng: poly.reduce((x, p) => x + p.lng, 0) / poly.length };
+    const inside = (pt) => { let ok = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a.lat > pt.lat) !== (b.lat > pt.lat) && pt.lng < (b.lng - a.lng) * (pt.lat - a.lat) / (b.lat - a.lat) + a.lng) ok = !ok; } return ok; };
+    return buildStations(c).filter((s) => inside(s.location)).map((s) => ({ ...s, lat: s.location.lat, lng: s.location.lng, distance: null }));
+  }
+
+  window.CarburantiDemo = { search, station, history, average, geocode, route, table, routeGeo, polygon };
 })();

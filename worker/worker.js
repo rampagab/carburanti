@@ -14,7 +14,7 @@
 // Binding opzionale: KV namespace con nome "ADDR" per ricordare gli indirizzi per 30 giorni.
 
 const API = "https://carburanti.mise.gov.it/ospzApi/";
-const VERSION = "2026-11-27.1"; // pubblicato in automatico da GitHub (Cloudflare Workers Builds)
+const VERSION = "2026-11-27.2"; // pubblicato in automatico da GitHub (Cloudflare Workers Builds)
 
 // Siti autorizzati a usare il Worker dal browser. Aggiungi qui eventuali altri indirizzi.
 // Una lista vuota [] permette qualunque sito.
@@ -164,9 +164,13 @@ async function cached(ctx, cors, key, seconds, make) {
   const cache = caches.default;
   const hit = await cache.match(key);
   if (hit) return withCors(hit, cors, "HIT");
-  const res = json(await make(), 200, {});
-  res.headers.set("Cache-Control", `public, max-age=${seconds}`);
-  ctx.waitUntil(cache.put(key, res.clone()));
+  const data = await make();
+  const res = json(data, 200, {});
+  // Una risposta fallita del MIMIT (success: false) non va in cache: al prossimo tentativo si riprova.
+  if (!data || data.success !== false) {
+    res.headers.set("Cache-Control", `public, max-age=${seconds}`);
+    ctx.waitUntil(cache.put(key, res.clone()));
+  }
   return withCors(res, cors, "MISS");
 }
 
