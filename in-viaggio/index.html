@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Come ti muovi? · 4 minuti</title>
+<meta name="description" content="Auto, moto, treno: 4 minuti, anonimo. Cosa ti renderebbe più semplice spostarti?">
+<meta property="og:title" content="Come ti muovi? 🚗🏍️🚆">
+<meta property="og:description" content="4 minuti, anonimo. Mi aiuti a capire cosa ti servirebbe davvero quando viaggi o ti sposti?">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://rampagab.github.io/in-viaggio/og.png">
+<meta name="theme-color" content="#FBF7F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E0C18" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FBF7F2; --card:rgba(255,255,255,.78); --card-solid:#fff; --ink:#1A1530; --muted:#6E6880; --line:rgba(26,21,48,.10);
+    --g1:#FF8A3D; --g2:#FF4E7A; --g3:#7B5CFF; --g4:#2EC5CE;
+    --grad:linear-gradient(120deg,var(--g1),var(--g2) 45%,var(--g3));
+    --grad-cool:linear-gradient(120deg,var(--g3),var(--g4));
+    --sel-bg:rgba(123,92,255,.10); --sel:#6A4BFF; --danger:#E5384F;
+    --shadow:0 1px 2px rgba(26,21,48,.04),0 10px 30px rgba(26,21,48,.08);
+    --radius:20px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0E0C18; --card:rgba(30,27,48,.72); --card-solid:#1E1B30; --ink:#F4F1FF; --muted:#A39DBA; --line:rgba(255,255,255,.10);
+      --sel-bg:rgba(140,115,255,.18); --sel:#A893FF; --shadow:0 10px 30px rgba(0,0,0,.35); }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--ink);
+    font:17px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  /* sfondo a gradiente morbido che si sposta piano */
+  .blobs{position:fixed;inset:-20vmax;z-index:-1;pointer-events:none;filter:blur(60px);opacity:.55}
+  .blobs i{position:absolute;width:55vmax;height:55vmax;border-radius:50%;animation:drift 22s ease-in-out infinite alternate}
+  .blobs i:nth-child(1){background:var(--g1);top:0;left:-5vmax}
+  .blobs i:nth-child(2){background:var(--g2);top:10vmax;right:-10vmax;animation-delay:-6s}
+  .blobs i:nth-child(3){background:var(--g3);bottom:-10vmax;left:10vmax;animation-delay:-12s}
+  .blobs i:nth-child(4){background:var(--g4);bottom:0;right:0;width:35vmax;height:35vmax;animation-delay:-3s}
+  body.q .blobs{opacity:.22}
+  @media (prefers-color-scheme: dark){ .blobs{opacity:.35} body.q .blobs{opacity:.16} }
+  @keyframes drift{to{transform:translate(6vmax,-4vmax) scale(1.12)}}
+  .app{max-width:540px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;
+    padding:calc(env(safe-area-inset-top) + 10px) 18px 0}
+  .top{display:flex;align-items:center;gap:10px;height:44px}
+  .back{border:0;background:var(--card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--ink);font:inherit;font-size:15px;
+    width:38px;height:38px;border-radius:50%;cursor:pointer;display:grid;place-items:center;box-shadow:var(--shadow)}
+  .back[hidden]{display:grid;visibility:hidden}
+  .road{flex:1;height:8px;border-radius:8px;background:var(--line);overflow:hidden;position:relative}
+  .road i{position:absolute;inset:0 auto 0 0;width:0;background:var(--grad);border-radius:8px;transition:width .45s cubic-bezier(.2,.8,.2,1)}
+  .count{font-size:13px;color:var(--muted);min-width:40px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  main{flex:1;display:flex;flex-direction:column;justify-content:center;padding:14px 0 10px}
+  .screen{animation:in .4s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes in{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: reduce){.screen,.idea{animation:none}.road i{transition:none}.blobs i{animation:none}}
+  .kicker{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 12px;
+    background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  h1,h2,h3{font-family:"Bricolage Grotesque",system-ui,sans-serif;letter-spacing:-.02em;margin:0}
+  h1{font-size:48px;line-height:1;font-weight:800}
+  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  h2{font-size:27px;line-height:1.15;font-weight:700}
+  .hint{color:var(--muted);font-size:15px;margin:10px 0 0}
+  .lead{font-size:18px;color:var(--muted);margin:16px 0 0}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 0}
+  .pill{font-size:14px;padding:8px 14px;border-radius:99px;background:var(--card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--line);font-weight:500}
+  .hero-emo{display:flex;gap:10px;font-size:40px;margin-bottom:18px}
+  .hero-emo span{width:66px;height:66px;border-radius:20px;display:grid;place-items:center;background:var(--card);box-shadow:var(--shadow);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:bob 3s ease-in-out infinite}
+  .hero-emo span:nth-child(2){animation-delay:-1s}.hero-emo span:nth-child(3){animation-delay:-2s}
+  @keyframes bob{50%{transform:translateY(-6px) rotate(-3deg)}}
+  .opts{display:flex;flex-direction:column;gap:10px;margin:22px 0 0}
+  .opt{position:relative;display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 16px;min-height:58px;
+    border-radius:16px;border:1.5px solid var(--line);background:var(--card);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    color:var(--ink);font:inherit;font-size:16.5px;cursor:pointer;box-shadow:var(--shadow);transition:transform .1s ease,border-color .15s,background .15s}
+  .opt:active{transform:scale(.98)}
+  .opt .emo{flex:none;font-size:22px;width:30px;text-align:center}
+  .opt .lbl{flex:1}
+  .opt .mark{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;transition:.15s;order:3}
+  .opt.multi .mark{border-radius:8px}
+  .opt[aria-pressed="true"]{background:var(--sel-bg);border-color:transparent;
+    background-image:linear-gradient(var(--sel-bg),var(--sel-bg)),var(--grad);background-origin:border-box;background-clip:padding-box,border-box}
+  .opt[aria-pressed="true"]{border:1.5px solid transparent;background:linear-gradient(var(--card-solid),var(--card-solid)) padding-box,var(--grad) border-box}
+  .opt[aria-pressed="true"] .mark{background:var(--grad);border-color:transparent}
+  .opt[aria-pressed="true"] .mark::after{content:"";width:10px;height:6px;border:2.5px solid #fff;border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-1px)}
+  .opt[disabled]{opacity:.4;cursor:not-allowed}
+  .other{margin-top:10px}
+  textarea,input[type=text]{width:100%;font:inherit;color:var(--ink);background:var(--card);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;outline:none;box-shadow:var(--shadow);font-size:16.5px}
+  textarea{min-height:140px;resize:vertical;margin-top:20px}
+  textarea:focus,input:focus{border-color:var(--sel)}
+  .tools{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:11px 16px;border-radius:99px;border:1.5px solid var(--line);
+    background:var(--card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--ink);font:inherit;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none;box-shadow:var(--shadow)}
+  .chip.rec{border-color:var(--danger);color:var(--danger)}
+  .chip.rec .dot{width:10px;height:10px;border-radius:50%;background:var(--danger);animation:pulse 1s infinite}
+  .chip.big{padding:14px 20px;font-size:16px}
+  @keyframes pulse{50%{opacity:.25}}
+  .small{font-size:13px;color:var(--muted)}
+  .voice-help{margin:10px 2px 0;line-height:1.4}
+  .chip[disabled]{opacity:.4}
+  .foot{position:sticky;bottom:0;margin:0 -18px;padding:22px 18px calc(env(safe-area-inset-bottom) + 6px);background:linear-gradient(to bottom,transparent,var(--bg) 38%)}
+  .foot:empty{display:none}
+  .cta{width:100%;min-height:58px;border:0;border-radius:18px;background:var(--ink);color:var(--bg);
+    font-family:inherit;font-size:17px;font-weight:700;line-height:1;cursor:pointer;transition:opacity .15s,transform .1s;box-shadow:0 10px 24px rgba(26,21,48,.18)}
+  .cta:active{transform:scale(.985)}
+  .cta[disabled]{opacity:.25;cursor:default;box-shadow:none}
+  .cta.accent{background:var(--grad);color:#fff;background-size:200% 100%;animation:shine 6s linear infinite}
+  @keyframes shine{50%{background-position:100% 0}}
+  .skip{display:block;margin:10px auto 0;border:0;background:none;color:var(--muted);font:inherit;font-size:15px;cursor:pointer;padding:6px}
+  .deck{margin:22px 0 0}
+  .idea{position:relative;border-radius:26px;padding:24px 22px 22px;color:#fff;overflow:hidden;box-shadow:0 16px 40px rgba(26,21,48,.22);
+    background:var(--cg);animation:pop .35s cubic-bezier(.2,.8,.2,1) both;min-height:210px;display:flex;flex-direction:column}
+  .idea::after{content:"";position:absolute;right:-40px;top:-40px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.14)}
+  @keyframes pop{from{opacity:0;transform:translateX(30px) rotate(2deg)}to{opacity:1;transform:none}}
+  .idea .emo{font-size:42px;line-height:1;position:relative;z-index:1}
+  .idea h3{font-size:24px;line-height:1.15;margin:16px 0 8px;position:relative;z-index:1}
+  .idea p{margin:0;opacity:.9;font-size:16px;position:relative;z-index:1}
+  .idea .n{position:absolute;top:22px;right:22px;font-size:13px;font-weight:700;opacity:.85;z-index:1}
+  .votes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:14px}
+  .vote{min-height:66px;border-radius:18px;border:1.5px solid var(--line);background:var(--card);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    color:var(--ink);font:inherit;font-size:14.5px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:var(--shadow)}
+  .vote span{font-size:22px}
+  .vote:active{transform:scale(.95)}
+  .vote[aria-pressed="true"]{background:var(--grad);color:#fff;border-color:transparent}
+  .center{text-align:center}
+  .center .hero-emo{justify-content:center}
+  .notice{margin-top:18px;font-size:14px;padding:12px 14px;border-radius:14px;background:var(--card);border:1px dashed var(--line)}
+  .err{color:var(--danger);font-size:14px;margin-top:10px;min-height:1em}
+  audio{height:40px;max-width:100%}
+</style>
+</head>
+<body>
+<div class="blobs" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="app">
+  <div class="top">
+    <button class="back" id="back" hidden aria-label="Indietro">‹</button>
+    <div class="road" aria-hidden="true"><i id="bar"></i></div>
+    <div class="count" id="count"></div>
+  </div>
+  <main id="main" aria-live="polite"></main>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+/* ===================== CONFIG ===================== */
+const CONFIG = {
+  // URL della Web App di Google Apps Script (finisce con /exec). Vuoto = modalità anteprima.
+  endpoint: "",
+  // Numero WhatsApp per i vocali, formato internazionale senza + (es. "393331234567"). Vuoto = nascosto.
+  whatsapp: "",
+  // Username Telegram senza @ (es. "gabriele"). Vuoto = nascosto.
+  telegram: "",
+  version: "v2"
+};
+
+/* ===================== DOMANDE ===================== */
+const IDEAS = [
+  {k:"scadenze",   e:"⏰", t:"Promemoria per bollo, assicurazione, revisione, tagliando e gomme", d:"Per auto e moto: ti avvisa per tempo, senza doverci pensare tu."},
+  {k:"pagamenti",  e:"💳", t:"Pagare multe, bollo e parcheggi da un'unica app", d:"Con carta, Apple Pay o Google Pay, senza saltare tra siti diversi."},
+  {k:"sinistro",   e:"📸", t:"Aiuto passo passo se ti graffiano il mezzo o fai un incidente", d:"Foto, dati dell'altro veicolo, constatazione amichevole e invio all'assicurazione."},
+  {k:"auto_treno", e:"🚆", t:"Mi conviene l'auto o il treno?", d:"Costo e tempo reali a confronto, con il traffico di quel momento."},
+  {k:"costo_viaggio", e:"🛣️", t:"Quanto costa davvero un viaggio", d:"Carburante o ricarica, pedaggi e consumi in salita se vai in montagna. Anche diviso a testa."},
+  {k:"meteo",      e:"❄️", t:"Meteo, neve e ghiaccio lungo il percorso", d:"Sai prima di partire se servono catene o gomme da neve, e quando conviene partire."},
+  {k:"itinerari",  e:"🏍️", t:"Crea giri e itinerari da mandare all'orologio o al navigatore", d:"Per moto o auto: strade belle, curve, passi, da esportare su Garmin, Apple Watch o TomTom."},
+  {k:"scoperta",   e:"📍", t:"Posti da scoprire lungo la strada", d:"Soste, panorami, dove mangiare e borghi, sul percorso che stai facendo."},
+  {k:"rifornimento", e:"⛽", t:"Dove fare benzina o ricaricare conviene davvero", d:"Non solo il prezzo più basso: conta anche la strada per arrivarci. Con colonnine libere in tempo reale."},
+  {k:"spese_gruppo", e:"🧾", t:"Spese di gruppo per i viaggi", d:"Chi ha pagato cosa e chi deve quanto a chi, con la richiesta pronta da mandare."},
+  {k:"rimborso_aci", e:"🧮", t:"Quanto ti spetta di rimborso chilometrico", d:"Una stima con le tabelle ACI del tuo modello di auto: sai prima quanto ti rientra da una trasferta."},
+  {k:"rimborso",   e:"💼", t:"Nota spese per il lavoro, pronta da inviare", d:"Km, pedaggi e parcheggi registrati da soli, con export in PDF o Excel per l'azienda o il commercialista."},
+  {k:"costo_mezzo", e:"📊", t:"Quanto ti costa davvero il tuo mezzo", d:"Pieni, manutenzione, assicurazione e consumi reali, mese per mese, da esportare."},
+  {k:"parcheggio", e:"🅿️", t:"Ritrova dove hai parcheggiato", d:"E un avviso prima che scada la sosta."},
+  {k:"widget",     e:"⌚", t:"Tutto anche su CarPlay, Android Auto e smartwatch", d:"Quello che serve, senza prendere in mano il telefono."}
+];
+
+const Q = [
+  {id:"mezzi", sec:"Come ti muovi", type:"multi", title:"Con cosa ti sposti di solito?", hint:"Scegli tutto quello che usi.",
+   opts:[["🚗","Auto"],["🏍️","Moto o scooter"],["🚆","Treno o mezzi pubblici"],["🚲","Bici o monopattino"],["🚐","Camper o furgone"]]},
+  {id:"alimentazione", sec:"Come ti muovi", type:"multi", title:"I tuoi mezzi vanno a…", hint:"Se ne hai più di uno, scegli tutte le voci.",
+   showIf:a=>((a.mezzi||{}).sel||[]).some(x=>/Auto|Moto|Camper/.test(x)),
+   opts:[["⛽","Benzina"],["🛢️","Gasolio"],["🔥","GPL o metano"],["🌿","Ibrida"],["🔋","Ibrida plug-in"],["⚡","Elettrica"]]},
+  {id:"motivi", sec:"Come ti muovi", type:"multi", title:"Per cosa ti sposti?", hint:"Scegli tutte quelle che valgono.",
+   opts:[["🏠","Casa e lavoro, tutti i giorni"],["💼","Trasferte di lavoro, con rimborso km o nota spese"],["🏖️","Vacanze e weekend fuori"],["🏍️","Giri per passione (moto, passi, strade belle)"],["⛰️","Montagna e neve"],["👯","Viaggi con amici, dividendo le spese"],["🛒","Commissioni e figli"]], other:true},
+
+  {id:"rimborso", sec:"Come ti muovi", type:"multi", title:"Per le trasferte di lavoro, come ti viene rimborsato il viaggio?", hint:"Anche più di una voce.",
+   showIf:a=>((a.motivi||{}).sel||[]).some(x=>/Trasferte/.test(x)),
+   opts:[["📘","Con le tabelle ACI"],["💶","Una cifra fissa al km decisa dall'azienda"],["⛽","Solo le spese vere (scontrini di carburante, pedaggi)"],["🏢","Uso un'auto aziendale"],["🧑‍💼","Sono libero professionista: la scarico io"],["🤷","Non lo so di preciso"]]},
+  {id:"rimborso_stima", sec:"Come ti muovi", type:"single", title:"Prima di partire, sai quanto ti rientrerà di rimborso?",
+   showIf:a=>((a.motivi||{}).sel||[]).some(x=>/Trasferte/.test(x)) && !(((a.rimborso||{}).sel||[]).length===1 && a.rimborso.sel[0]==="Uso un'auto aziendale"),
+   opts:[["🎯","Sì, lo calcolo ogni volta"],["🤏","Più o meno"],["❓","No, lo scopro a fine mese"]]},
+
+  {id:"fastidi", sec:"I momenti scomodi", type:"multi", max:3, title:"Pensa all'ultimo anno: cosa ti ha fatto perdere più tempo, soldi o pazienza mentre ti spostavi?", hint:"Massimo 3.",
+   opts:[["🚗","Traffico e code"],["🅿️","Trovare o pagare il parcheggio"],["⏰","Ricordarmi bollo, assicurazione, revisione, tagliando"],["📬","Una multa arrivata a sorpresa"],["💥","Un danno o un incidente da gestire"],["⛽","Fare benzina o ricaricare a un buon prezzo"],["🚆","Capire se conveniva l'auto o il treno"],["❄️","Meteo, neve o ghiaccio sulla strada"],["🗺️","Organizzare un giro o un itinerario"],["🧾","Dividere le spese o fare la nota spese"],["💸","Capire quanto mi costa davvero spostarmi"]], other:true},
+  {id:"racconto", sec:"I momenti scomodi", type:"text", optional:true, title:"Raccontami l'ultima volta che uno spostamento ti ha fatto arrabbiare o perdere tempo.", hint:"Anche due righe. Oppure lasciami un vocale.", ph:"Es. «Sono partito per la montagna e a metà strada…»"},
+  {id:"prima", sec:"I momenti scomodi", type:"multi", title:"Prima di un viaggio fuori porta, cosa controlli?", hint:"Scegli tutto quello che fai di solito.",
+   opts:[["🌦️","Meteo, neve o ghiaccio"],["🚗","Traffico e cantieri"],["💶","Quanto spenderò tra carburante e pedaggi"],["🚆","Se conviene il treno"],["⛽","Dove fare benzina o ricaricare"],["🍝","Dove fermarmi a mangiare o a vedere qualcosa"],["🗺️","Il percorso più bello, non il più veloce"],["🤷","Niente, parto e basta"]], other:true},
+  {id:"danno", sec:"I momenti scomodi", type:"single", title:"Se domani ti graffiano il mezzo al supermercato o fai un piccolo incidente, sapresti cosa fare?",
+   opts:[["😎","Sì, so esattamente cosa fare"],["📱","Più o meno: aprirei l'app dell'assicurazione"],["📞","Chiamerei qualcuno per farmi aiutare"],["😬","Onestamente no"]]},
+  {id:"spese", sec:"I momenti scomodi", type:"multi", title:"Come tieni traccia di quanto spendi per spostarti?",
+   opts:[["📈","Con un'app o un foglio Excel"],["🧾","Conservo gli scontrini"],["🏦","Guardo l'estratto conto"],["🧠","A memoria, più o meno"],["🙋","Non lo faccio, ma mi piacerebbe"],["🤷","Non lo faccio e non mi interessa"]]},
+
+  {id:"app", sec:"Cosa usi già", type:"multi", title:"Quali app o strumenti usi già?", hint:"Anche ogni tanto.",
+   opts:[["🗺️","Google Maps, Waze o Apple Mappe"],["🛣️","Telepass, UnipolMove o simili"],["🅿️","EasyPark, MooneyGo o app per le strisce blu"],["🛡️","L'app della mia assicurazione"],["🏛️","IO o iPatente"],["🚆","Trenitalia, Italo o app dei mezzi"],["🏍️","App per giri in moto (Calimoto, Kurviger…)"],["🧭","Garmin, TomTom o un navigatore"],["⛽","App per prezzi carburante o ricarica"],["🧾","Splitwise o simili"],["🚫","Nessuna di queste"]], other:true},
+  {id:"device", sec:"Cosa usi già", type:"multi", title:"Mentre guidi usi…",
+   opts:[["🍎","CarPlay"],["🤖","Android Auto"],["⌚","Apple Watch"],["🏃","Garmin o altro smartwatch"],["🧭","Navigatore da moto o auto (TomTom, Garmin)"],["📱","Il telefono sul supporto"],["🚫","Niente di questo"]]},
+
+  {id:"idee", sec:"La tua app ideale", type:"ideas", title:"Ti servirebbe?", hint:"Rispondi d'istinto. «Uso già altro» se lo risolvi già con un'altra app."},
+  {id:"bacchetta", sec:"La tua app ideale", type:"text", optional:true, title:"Bacchetta magica: se un'app potesse fare UNA cosa per te quando viaggi o ti sposti, cosa sarebbe?", hint:"Anche un'idea strana va benissimo. Va bene anche un vocale.", ph:"Vale tutto, anche quello che sembra impossibile."},
+  {id:"freni", sec:"La tua app ideale", type:"multi", title:"Cosa ti farebbe NON usare un'app così?",
+   opts:[["🔐","Dovermi registrare"],["📢","La pubblicità"],["💶","Che sia a pagamento"],["🔔","Troppe notifiche"],["🪪","Che chieda troppi dati (targa, documenti…)"],["📦","Ho già troppe app"],["😌","Niente, la proverei"]], other:true},
+
+  {id:"contatto", sec:"Ultima cosa", type:"contact", optional:true, title:"Vuoi essere tra i primi a provarla?", hint:"Lascia un numero o un'email. È facoltativo e lo uso solo per questo."}
+];
+
+/* ===================== STATO ===================== */
+const LS_KEY = "inviaggio-"+CONFIG.version;
+const AUDIO = {}; // vocali registrati nella pagina, per domanda
+const $ = s => document.querySelector(s);
+const main = $("#main"), foot = $("#foot");
+let state = load() || {answers:{}, step:-1, ideaIdx:0, order:null, started:null, id:null};
+if(!state.order){ state.order = shuffle(IDEAS.map(i=>i.k)); }
+if(!state.id){ state.id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+Math.random().toString(16).slice(2)); }
+
+function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)) }catch(e){ return null } }
+function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)) }catch(e){} }
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]} return a }
+function visible(){ return Q.filter(q=>!q.showIf || q.showIf(state.answers)) }
+function el(tag, attrs={}, ...kids){
+  const n=document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs)){
+    if(k==="class") n.className=v; else if(k==="text") n.textContent=v;
+    else if(k.startsWith("on")) n.addEventListener(k.slice(2),v); else if(v!==false && v!=null) n.setAttribute(k,v===true?"":v);
+  }
+  kids.flat().forEach(c=>c!=null && n.append(c.nodeType?c:document.createTextNode(c)));
+  return n;
+}
+
+/* ===================== RENDER ===================== */
+function render(){
+  save();
+  main.innerHTML=""; foot.innerHTML="";
+  const qs = visible();
+  const back = $("#back");
+  document.body.classList.toggle('q', state.step>=0 && state.step<qs.length);
+  if(state.step<0) return renderWelcome();
+  if(state.step>=qs.length) return renderDone();
+  back.hidden=false;
+  const q = qs[state.step];
+  setBar();
+  $("#count").textContent = (state.step+1)+"/"+qs.length;
+  const s = el("section",{class:"screen"});
+  s.append(el("p",{class:"kicker",text:q.sec}), el("h2",{text:q.title,id:"qt"}));
+  if(q.hint) s.append(el("p",{class:"hint",text:q.hint}));
+  main.append(s);
+  ({single:rSingle,multi:rMulti,text:rText,ideas:rIdeas,contact:rContact})[q.type](q,s);
+  window.scrollTo(0,0);
+}
+
+function renderWelcome(){
+  $("#back").hidden=true; $("#bar").style.width="0"; $("#count").textContent="";
+  const resumed = Object.keys(state.answers).length>0;
+  main.append(el("section",{class:"screen"},
+    el("div",{class:"hero-emo","aria-hidden":"true"}, el("span",{text:"🚗"}), el("span",{text:"🏍️"}), el("span",{text:"🚆"})),
+    el("h1",{}, "Come ti ", el("span",{class:"g",text:"muovi?"})),
+    el("p",{class:"lead",text:"Auto, moto, treno: sto raccogliendo idee su cosa renderebbe più semplice spostarsi, che sia per andare al lavoro, per una trasferta o per un giro nel weekend."}),
+    el("p",{class:"lead",text:"Non ci sono risposte giuste: mi interessa com'è davvero per te."}),
+    el("div",{class:"meta"}, el("span",{class:"pill",text:"⏱ 4–5 minuti"}), el("span",{class:"pill",text:"🙈 Anonimo"}), el("span",{class:"pill",text:"🎙 Puoi rispondere a voce"}))
+  ));
+  foot.append(el("button",{class:"cta accent",text:resumed?"Riprendi da dove eri":"Iniziamo",onclick:()=>{ if(!state.started) state.started=Date.now(); state.step=resumed?state.step<0?0:state.step:0; render(); }}));
+  if(resumed) foot.append(el("button",{class:"skip",text:"Ricomincia da capo",onclick:()=>{localStorage.removeItem(LS_KEY);location.reload()}}));
+}
+
+function setBar(){
+  const qs = visible(), u = q => q.type==="ideas" ? IDEAS.length : 1;
+  const tot = qs.reduce((n,q)=>n+u(q),0);
+  let done = qs.slice(0,Math.max(0,state.step)).reduce((n,q)=>n+u(q),0);
+  if(qs[state.step] && qs[state.step].type==="ideas") done += state.ideaIdx;
+  $("#bar").style.width = Math.round(done/tot*100)+"%";
+}
+function next(){ state.step++; render(); }
+function prev(){
+  const q = visible()[state.step];
+  if(q && q.type==="ideas" && state.ideaIdx>0){ state.ideaIdx--; return render(); }
+  state.step--;
+  const p = visible()[state.step];
+  if(p && p.type==="ideas") state.ideaIdx = IDEAS.length-1;
+  render();
+}
+$("#back").addEventListener("click",prev);
+
+function cta(label, enabled, fn){
+  const b = el("button",{class:"cta",text:label,onclick:fn});
+  b.disabled = !enabled; foot.append(b); return b;
+}
+
+function rSingle(q,s){
+  const box = el("div",{class:"opts",role:"radiogroup","aria-labelledby":"qt"});
+  q.opts.forEach(([e,t])=>{
+    const b = el("button",{class:"opt",role:"radio","aria-pressed":String(state.answers[q.id]===t),"aria-checked":String(state.answers[q.id]===t)},
+      el("span",{class:"emo",text:e,"aria-hidden":"true"}), el("span",{class:"lbl",text:t}), el("span",{class:"mark"}));
+    b.onclick=()=>{ state.answers[q.id]=t; box.querySelectorAll(".opt").forEach(o=>o.setAttribute("aria-pressed","false")); b.setAttribute("aria-pressed","true"); save(); setTimeout(next,220); };
+    box.append(b);
+  });
+  s.append(box);
+  if(state.answers[q.id]) cta("Avanti",true,next);
+}
+
+function rMulti(q,s){
+  const cur = new Set((state.answers[q.id]||{}).sel||[]);
+  let other = (state.answers[q.id]||{}).altro||"";
+  const box = el("div",{class:"opts"});
+  const btns=[];
+  const refresh=()=>{
+    btns.forEach(([b,t])=>{ const on=cur.has(t); b.setAttribute("aria-pressed",String(on)); b.disabled = q.max && !on && cur.size>=q.max; });
+    state.answers[q.id]={sel:[...cur],altro:other.trim()}; save();
+    go.disabled = cur.size===0 && !other.trim();
+  };
+  q.opts.forEach(([e,t])=>{
+    const b = el("button",{class:"opt multi","aria-pressed":"false"}, el("span",{class:"emo",text:e,"aria-hidden":"true"}), el("span",{class:"lbl",text:t}), el("span",{class:"mark"}));
+    b.onclick=()=>{
+      const excl = /^Nessun|^Niente|^Non /.test(t);
+      if(cur.has(t)) cur.delete(t); else { if(excl) cur.clear(); else [...cur].forEach(x=>/^Nessun|^Niente|^Non /.test(x)&&cur.delete(x)); cur.add(t); }
+      refresh();
+    };
+    btns.push([b,t]); box.append(b);
+  });
+  s.append(box);
+  if(q.other){
+    const inp = el("input",{type:"text",class:"other",placeholder:"Altro? Scrivilo qui",value:other,"aria-label":"Altro"});
+    inp.oninput=()=>{ other=inp.value; refresh(); };
+    s.append(inp);
+  }
+  const go = cta("Avanti",false,next);
+  refresh();
+}
+
+function rText(q,s){
+  const ta = el("textarea",{placeholder:q.ph||"","aria-labelledby":"qt"});
+  ta.value = state.answers[q.id]||"";
+  ta.oninput=()=>{ state.answers[q.id]=ta.value; save(); refreshGo(); };
+  s.append(ta);
+  const tools = el("div",{class:"tools"});
+  const help = el("p",{class:"small voice-help"});
+  const inFrame = (()=>{ try{ return window.self!==window.top }catch(e){ return true } })();
+  const setHelp = t => { help.textContent = t; };
+  const baseHelp = "Puoi anche toccare il 🎙 della tastiera per dettare.";
+  setHelp(inFrame ? "Nell'anteprima il microfono è bloccato: sul link vero funziona. Intanto puoi usare il 🎙 della tastiera." : baseHelp);
+  let busy = null; // "dict" | "rec": una cosa alla volta
+  const micErr = (e) => {
+    const n = (e && (e.error || e.name)) || "";
+    if (/not-allowed|NotAllowed|service-not-allowed|Security/.test(n))
+      return "Il permesso al microfono è stato negato. Puoi riattivarlo nelle impostazioni del browser, oppure usare il 🎙 della tastiera.";
+    if (/audio-capture|NotFound|NotReadable/.test(n)) return "Non trovo il microfono. Usa il 🎙 della tastiera.";
+    if (/network/.test(n)) return "La dettatura ha bisogno di internet. Riprova, oppure registra un vocale.";
+    if (/no-speech/.test(n)) return "Non ho sentito niente: riprova parlando vicino al telefono.";
+    return "Qui il microfono non funziona. Se hai aperto il link da WhatsApp o Instagram, aprilo in Safari o Chrome. Oppure usa il 🎙 della tastiera.";
+  };
+
+  /* Dettatura → testo (Safari e Chrome) */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let dictBtn = null;
+  if (SR && !inFrame) {
+    let rec = null, base = "", fin = "";
+    dictBtn = el("button",{class:"chip",type:"button"}, el("span",{text:"🎙"}), el("span",{text:"Detta"}));
+    const idle = () => { rec=null; busy=null; dictBtn.className="chip"; dictBtn.firstChild.className=""; dictBtn.firstChild.textContent="🎙"; dictBtn.lastChild.textContent="Detta"; if(recBtn) recBtn.disabled=false; };
+    dictBtn.onclick = () => {
+      if (rec) { try{ rec.stop() }catch(e){} return; }
+      if (busy) return;
+      try {
+        rec = new SR(); rec.lang = "it-IT"; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+        base = ta.value ? ta.value.replace(/\s*$/," ") : ""; fin = "";
+        rec.onresult = ev => {
+          let tmp = "";
+          for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            const r = ev.results[i];
+            if (r.isFinal) fin += r[0].transcript.trim() + " "; else tmp += r[0].transcript;
+          }
+          ta.value = (base + fin + tmp).trimStart(); ta.oninput();
+        };
+        rec.onerror = e => { setHelp(micErr(e)); };
+        rec.onend = () => { base = ta.value ? ta.value.replace(/\s*$/," ") : ""; idle(); };
+        rec.start(); busy = "dict";
+        dictBtn.className = "chip rec"; dictBtn.firstChild.className = "dot"; dictBtn.firstChild.textContent = "";
+        dictBtn.lastChild.textContent = "Ti ascolto… tocca per fermare";
+        if (recBtn) recBtn.disabled = true;
+        setHelp("Parla pure: quando fai una pausa si ferma da solo. Toccalo di nuovo per continuare.");
+      } catch (e) { setHelp(micErr(e)); idle(); }
+    };
+    tools.append(dictBtn);
+  }
+
+  /* Vocale registrato (resta audio, lo ascolto io) */
+  let recBtn = null;
+  if (window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && !inFrame) {
+    const box = el("div",{class:"tools",style:"width:100%;margin-top:0"});
+    recBtn = el("button",{class:"chip",type:"button"}, el("span",{text:"🔴"}), el("span",{text:"Registra un vocale"}));
+    const drawSaved = () => {
+      box.innerHTML = "";
+      if (AUDIO[q.id]) {
+        const au = el("audio",{controls:true,src:URL.createObjectURL(AUDIO[q.id].blob)});
+        box.append(el("span",{class:"small",text:"🎧 Vocale pronto ("+AUDIO[q.id].sec+" s)"}), au,
+          el("button",{class:"chip",type:"button",onclick:()=>{ delete AUDIO[q.id]; drawSaved(); refreshGo(); }},"🗑 Elimina"));
+      } else box.append(recBtn);
+    };
+    let mr = null, chunks = [], t0 = 0, timer = null;
+    const fmt = sec => Math.floor(sec/60) + ":" + String(sec%60).padStart(2,"0");
+    recBtn.onclick = async () => {
+      if (mr) { mr.stop(); return; }
+      if (busy) return;
+      busy = "rec";
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        const mime = ["audio/mp4","audio/webm;codecs=opus","audio/webm"].find(m => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || "";
+        mr = new MediaRecorder(stream, mime ? {mimeType:mime, audioBitsPerSecond:32000} : undefined);
+        chunks = []; t0 = Date.now();
+        mr.ondataavailable = e => e.data.size && chunks.push(e.data);
+        mr.onstop = () => {
+          clearInterval(timer); stream.getTracks().forEach(t => t.stop());
+          const sec = Math.round((Date.now()-t0)/1000);
+          if (sec >= 1 && chunks.length) AUDIO[q.id] = {blob:new Blob(chunks,{type:mr.mimeType||mime||"audio/webm"}), sec};
+          mr = null; busy = null; if (dictBtn) dictBtn.disabled = false;
+          recBtn.className = "chip"; recBtn.firstChild.className = ""; recBtn.firstChild.textContent = "🔴"; recBtn.lastChild.textContent = "Registra un vocale";
+          setHelp("Il vocale parte insieme alle risposte quando premi Invia. Se ricarichi la pagina prima, va registrato di nuovo.");
+          drawSaved(); refreshGo();
+        };
+        mr.start(1000);
+        if (dictBtn) dictBtn.disabled = true;
+        recBtn.className = "chip rec"; recBtn.firstChild.className = "dot"; recBtn.firstChild.textContent = "";
+        recBtn.lastChild.textContent = "0:00 · tocca per fermare";
+        timer = setInterval(() => { const sec = Math.round((Date.now()-t0)/1000);
+          recBtn.lastChild.textContent = fmt(sec) + " · tocca per fermare"; if (sec >= 180 && mr) mr.stop(); }, 500);
+      } catch (e) { busy = null; mr = null; setHelp(micErr(e)); }
+    };
+    drawSaved();
+    tools.append(box);
+  }
+  s.append(tools, help);
+  const refreshGo=()=>{ go.textContent=(ta.value.trim()||AUDIO[q.id])?"Avanti":"Salta"; };
+  const go = cta((ta.value.trim()||AUDIO[q.id])?"Avanti":"Salta",true,next);
+}
+
+function rIdeas(q,s){
+  const wrap = el("div",{class:"deck"});
+  s.append(wrap);
+  const answers = state.answers.idee = state.answers.idee || {};
+  const showCard=()=>{
+    wrap.innerHTML="";
+    const k = state.order[state.ideaIdx]; const it = IDEAS.find(i=>i.k===k);
+    const G=[["#FF8A3D","#FF4E7A"],["#FF4E7A","#7B5CFF"],["#7B5CFF","#2EC5CE"],["#2EC5CE","#3D7BFF"],["#F7B733","#FC4A1A"],["#8E2DE2","#FF4E7A"],["#11998E","#38EF7D"]];
+    const g=G[state.ideaIdx%G.length];
+    const card = el("div",{class:"idea",style:`--cg:linear-gradient(135deg,${g[0]},${g[1]})`},
+      el("span",{class:"n",text:(state.ideaIdx+1)+" / "+IDEAS.length}),
+      el("div",{class:"emo",text:it.e,"aria-hidden":"true"}), el("h3",{text:it.t}), el("p",{text:it.d}));
+    const votes = el("div",{class:"votes",role:"group","aria-label":"La tua risposta"});
+    [["si","🙌","Mi serve"],["gia","👌","Uso già altro"],["no","🙅","Non mi serve"]].forEach(([v,e,t])=>{
+      const b = el("button",{class:"vote v-"+v,"aria-pressed":String(answers[k]===v)}, el("span",{text:e,"aria-hidden":"true"}), t);
+      b.onclick=()=>{ answers[k]=v; save(); b.setAttribute("aria-pressed","true");
+        setTimeout(()=>{ if(state.ideaIdx<IDEAS.length-1){ state.ideaIdx++; showCard(); } else { next(); } },180); };
+      votes.append(b);
+    });
+    wrap.append(card,votes);
+    setBar(); save();
+  };
+  showCard();
+}
+
+function rContact(q,s){
+  const inp = el("input",{type:"text",inputmode:"email",autocomplete:"email",placeholder:"Numero o email (facoltativo)","aria-labelledby":"qt",style:"margin-top:22px"});
+  inp.value = state.answers.contatto||"";
+  inp.oninput=()=>{ state.answers.contatto=inp.value; save(); };
+  s.append(inp);
+  s.append(el("p",{class:"hint",text:"Premendo Invia mandi le risposte. Grazie davvero!"}));
+  const err = el("p",{class:"err",role:"alert"}); s.append(err);
+  const b = cta("Invia le risposte",true,async()=>{
+    b.disabled=true; b.textContent="Invio in corso…"; err.textContent="";
+    const ok = await submit();
+    if(ok){ state.sent=true; next(); }
+    else { b.disabled=false; b.textContent="Riprova"; err.textContent="Non sono riuscito a inviare. Controlla la connessione e riprova."; }
+  });
+  b.className="cta accent";
+}
+
+function renderDone(){
+  $("#back").hidden=true; $("#bar").style.width="100%"; $("#count").textContent="";
+  const s = el("section",{class:"screen center"},
+    el("div",{class:"hero-emo","aria-hidden":"true"}, el("span",{text:"🙌"})),
+    el("h1",{}, el("span",{class:"g",text:"Grazie!"})),
+    el("p",{class:"lead",text:"Le tue risposte mi aiutano tantissimo."}));
+  if(CONFIG.whatsapp || CONFIG.telegram){
+    s.append(el("p",{class:"lead",text:"Ti è venuta in mente un'altra idea? Mandami un vocale quando vuoi:"}));
+    const t = el("div",{class:"tools",style:"justify-content:center;margin-top:16px"});
+    const msg = encodeURIComponent("Ciao! Ho un'idea per il questionario «Come ti muovi?» 🚗");
+    if(CONFIG.whatsapp) t.append(el("a",{class:"chip",href:`https://wa.me/${CONFIG.whatsapp}?text=${msg}`,target:"_blank",rel:"noopener"},"💬 WhatsApp"));
+    if(CONFIG.telegram) t.append(el("a",{class:"chip",href:`https://t.me/${CONFIG.telegram}`,target:"_blank",rel:"noopener"},"✈️ Telegram"));
+    s.append(t);
+  }
+  if(!CONFIG.endpoint) s.append(el("p",{class:"notice",text:"Anteprima: l'indirizzo per salvare le risposte non è ancora impostato, quindi non è stato inviato nulla."}));
+  main.append(s);
+}
+
+/* ===================== INVIO ===================== */
+function payload(){
+  const a = state.answers, row = {
+    id: state.id, versione: CONFIG.version,
+    durata_sec: state.started ? Math.round((Date.now()-state.started)/1000) : "",
+    dispositivo: /iPhone|iPad/.test(navigator.userAgent)?"iOS":/Android/.test(navigator.userAgent)?"Android":"Altro"
+  };
+  Q.forEach(q=>{
+    if(q.type==="ideas"){ IDEAS.forEach(i=>row["idea_"+i.k]=(a.idee||{})[i.k]||""); row.ordine_idee=state.order.join(","); }
+    else if(q.type==="multi"){ const v=a[q.id]||{}; row[q.id]=(v.sel||[]).join(" | "); if(q.other) row[q.id+"_altro"]=v.altro||""; }
+    else row[q.id]=a[q.id]||"";
+  });
+  return row;
+}
+async function submit(){
+  const data = payload();
+  if(!CONFIG.endpoint){ console.log("[anteprima] risposte:",data,"vocali:",Object.keys(AUDIO)); await new Promise(r=>setTimeout(r,500)); return true; }
+  const audio=[];
+  for(const [qid,v] of Object.entries(AUDIO)){
+    const b64 = await new Promise(r=>{const fr=new FileReader(); fr.onload=()=>r(String(fr.result).split(",")[1]); fr.readAsDataURL(v.blob);});
+    audio.push({q:qid, mime:v.blob.type, sec:v.sec, b64});
+  }
+  try{
+    await fetch(CONFIG.endpoint,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...data,_audio:audio})});
+    return true;
+  }catch(e){ return false; }
+}
+
+document.addEventListener("keydown",e=>{
+  if(e.key==="Enter" && e.target.tagName!=="TEXTAREA"){ const b=foot.querySelector(".cta:not([disabled])"); if(b){ e.preventDefault(); b.click(); } }
+});
+if(state.sent){ state.step = visible().length; }
+render();
+</script>
+</body>
+</html>
